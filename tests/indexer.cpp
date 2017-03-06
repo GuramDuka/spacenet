@@ -46,6 +46,7 @@ void indexer_test()
 			decltype(dr.fsize) size_;
 			decltype(dr.isfreg) isfreg_;
 
+			entry() {}
 			entry(std::string name, decltype(mtime_) mtime, decltype(size_) fsize, decltype(dr.isfreg) isfreg) :
 				name_(std::move(name)),
 				mtime_(std::move(mtime)),
@@ -57,10 +58,12 @@ void indexer_test()
 		std::vector<entry> lst;
 
 		dr.recursive = dr.list_directories = true;
-
-		dr.read(get_cwd(), [&] {
+		dr.manipulator = [&] {
 			lst.emplace_back(entry(dr.path_name, dr.mtime, dr.fsize, dr.isfreg));
-		});
+			return nullptr;
+		};
+
+		dr.read(get_cwd());
 
 		locale_traits<char> comparator;
 

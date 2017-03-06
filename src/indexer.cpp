@@ -74,15 +74,15 @@ std::string get_cwd(bool no_back_slash)
 
     s.resize(strlen(s.c_str()));
 
-	if( s.empty() )
-		s = ".";
+    if( s.empty() )
+	s = ".";
 
     if( !no_back_slash )
 		s += "/";
 
 	s.shrink_to_fit();
 
-	return s;
+    return s;
 #endif
 }
 //------------------------------------------------------------------------------
@@ -158,16 +158,6 @@ void directory_reader::read(const std::string & root_path)
 	if( path.back() == path_delimiter[0] )
 		path.pop_back();
 
-	struct stack_entry {
-#if _WIN32
-		HANDLE handle;
-#else
-		DIR * handle;
-#endif
-		std::string path;
-	};
-	std::stack<stack_entry> stack;
-
 #if _WIN32
 	at_scope_exit(
 		while( !stack.empty() ) {
@@ -178,7 +168,7 @@ void directory_reader::read(const std::string & root_path)
 #else
 	at_scope_exit(
 		while( !stack.empty() ) {
-			::closedir(stack.top().handle);
+			::closedir(static_cast<DIR *>(stack.top().handle));
 			stack.pop();
 		}
 	);
@@ -215,7 +205,7 @@ void directory_reader::read(const std::string & root_path)
 			break;
 		}
 		else {
-			handle = stack.top().handle;
+			handle = static_cast<DIR *>(stack.top().handle);
 			path = stack.top().path;
 			stack.pop();
 #if _WIN32
@@ -279,10 +269,13 @@ void directory_reader::read(const std::string & root_path)
 #else
 		for(;;) {
 			errno = 0;
+			ent = readdir(handle);
+            err = errno;
 
-			if (ent = readdir(dir)) == nullptr && errno != 0 ) {
-				err = errno;
-				throw std::runtime_error("Failed to read directory: " + cur_path + ", " + std::to_string(err));
+			if( ent == nullptr ) {
+                if( err != 0 )
+                    throw std::runtime_error("Failed to read directory: " + path + ", " + std::to_string(err));
+				break;
 			}
 
 			if( strcmp(ent->d_name, ".") == 0 || strcmp(ent->d_name, "..") == 0 )
@@ -311,22 +304,40 @@ void directory_reader::read(const std::string & root_path)
 			islnk = fs.st_mode & S_IFLNK;
 #if _WIN32
 			if( (fdw.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0 ) {
-#elif DT_DIR
-			if( ent->d_type == DT_DIR ) {
+#elif __USE_MISC
+//&& DT_UNKNOWN && DT_DIR && IFTODT
+            auto d_type = ent->d_type;
+
+			if( d_type == DT_UNKNOWN ) {
+                struct stat st;
+
+                if( ::stat(path_name.c_str(), &st) != 0 ) {
+                    err = errno;
+                    throw std::runtime_error("Failed to stat entry: " + path_name + ", " + std::to_string(err));
+                }
+
+                d_type = IFTODT(st.st_mode);
+			}
+
+			if( d_type == DT_DIR ) {
 #else
 			struct stat st;
+
 			if( ::stat(path_name.c_str(), &st) != 0 ) {
 				err = errno;
 				throw std::runtime_error("Failed to stat entry: " + path_name + ", " + std::to_string(err));
 			}
+
 			if( (st.st_mode & S_IFDIR) != 0 ) {
 #endif
 
+                void * data = nullptr;
+
 				if( list_directories && match )
-					manipul();
+					data = manipulator();
 
 				if( recursive && (max_level == 0 || stack.size() < max_level ) ) {
-					stack.push({ handle, path });
+					stack.push({ handle, data, path });
 					path += path_delimiter + name;
 #if _WIN32
 					handle = INVALID_HANDLE_VALUE;
@@ -337,7 +348,7 @@ void directory_reader::read(const std::string & root_path)
 				}
 			}
 			else if( match )
-				manipul();
+				manipulator();
 		}
 #if _WIN32
 		while( FindNextFileW(handle, &fdw) != 0 );
@@ -355,20 +366,29 @@ void directory_reader::read(const std::string & root_path)
 void directory_indexer::reindex(bool modified_only)
 {
 	modified_only = modified_only;
-	directory_reader dr;
-	dr.recursive = dr.list_directories = true;
 
-	entry root_entry, * parent = &root_entry;
+	entry root;
+	{
+        directory_reader dr;
 
-	dr.read(get_cwd(), [&] {
-		parent->lst_.emplace_front(entry(parent, dr.level, dr.name, dr.mtime, dr.fsize, dr.isfreg));
+        dr.recursive = dr.list_directories = true;
+        dr.manipulator = [&] {
+            entry * parent = static_cast<entry *>(dr.stack.empty() ? &root : dr.stack.top().data);
 
-		while( dr.level <= parent->level_ )
-			parent = parent->parent_;
+            parent->lst_.emplace_front(entry(parent, dr.level, dr.name, dr.mtime, dr.fsize, dr.isfreg));
 
-		if( dr.level > parent->level_ + 1 )
-			parent = &parent->lst_.front();
-	});
+            std::string full_path_name;
+
+            for( auto p = parent; p != &root; p = p->parent_ )
+                full_path_name += p->name_ + directory_reader::path_delimiter;
+            full_path_name += dr.name;
+            std::cout << full_path_name << " " << dr.level << std::endl;
+
+            return &parent->lst_.front();
+        };
+
+        dr.read(get_cwd());
+    }
 
 	std::function<void(const entry &)> f;
 
@@ -383,7 +403,7 @@ void directory_indexer::reindex(bool modified_only)
 		}
 	};
 
-	f(root_entry);
+	f(root);
 
 }
 //------------------------------------------------------------------------------

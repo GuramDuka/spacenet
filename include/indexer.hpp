@@ -29,6 +29,7 @@
 //------------------------------------------------------------------------------
 #include <functional>
 #include <string>
+#include <stack>
 #include <forward_list>
 //------------------------------------------------------------------------------
 #include "config.h"
@@ -42,7 +43,21 @@ std::string path2rel(const std::string & path, bool no_back_slash = false);
 //------------------------------------------------------------------------------
 struct directory_reader {
 	static const char path_delimiter[];
-	std::function<void()> manipul;
+
+	std::function<void * ()> manipulator;
+
+	struct stack_entry {
+#if _WIN32
+		HANDLE handle;
+#else
+		void * handle;
+#endif
+        void * data;
+		std::string path;
+	};
+
+	std::stack<stack_entry> stack;
+
 	std::string path;
 	std::string path_name;
 	std::string name;
@@ -64,7 +79,7 @@ struct directory_reader {
 
 	template <typename Manipul>
 	void read(const std::string & root_path, const Manipul & ml) {
-		this->manipul = [&] {
+		this->manipulator = [&] {
 			ml();
 		};
 

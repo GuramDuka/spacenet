@@ -35,7 +35,7 @@
 #include <unistd.h>
 #endif
 //------------------------------------------------------------------------------
-#ifndef HAVE_READDIR_R
+#if !defined(HAVE_READDIR_R) && (!defined(__GNUC_PREREQ) || !__GNUC_PREREQ (3,2))
 #define HAVE_READDIR_R (_POSIX_C_SOURCE >= 1 || _XOPEN_SOURCE || _BSD_SOURCE || _SVID_SOURCE || _POSIX_SOURCE)
 #endif
 //------------------------------------------------------------------------------
