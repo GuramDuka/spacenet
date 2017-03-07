@@ -32,6 +32,7 @@
 #include <cstring>
 #include <regex>
 #include <iostream>
+#include <fstream>
 //------------------------------------------------------------------------------
 #if defined(_S_IFDIR) && !defined(S_IFDIR)
 #define S_IFDIR _S_IFDIR
@@ -158,6 +159,17 @@ void directory_reader::read(const std::string & root_path)
 	if( path.back() == path_delimiter[0] )
 		path.pop_back();
 
+	struct stack_entry {
+#if _WIN32
+		HANDLE handle;
+#else
+		DIR * handle;
+#endif
+		std::string path;
+	};
+
+	std::stack<stack_entry> stack;
+	
 #if _WIN32
 	at_scope_exit(
 		while( !stack.empty() ) {
@@ -168,7 +180,7 @@ void directory_reader::read(const std::string & root_path)
 #else
 	at_scope_exit(
 		while( !stack.empty() ) {
-			::closedir(static_cast<DIR *>(stack.top().handle));
+			::closedir(stack.top().handle);
 			stack.pop();
 		}
 	);
@@ -205,7 +217,7 @@ void directory_reader::read(const std::string & root_path)
 			break;
 		}
 		else {
-			handle = static_cast<DIR *>(stack.top().handle);
+			handle = stack.top().handle;
 			path = stack.top().path;
 			stack.pop();
 #if _WIN32
@@ -262,7 +274,9 @@ void directory_reader::read(const std::string & root_path)
 			if( result == nullptr )
 				break;
 
-			if( strcmp(ent->d_name, ".") == 0 || strcmp(ent->d_name, "..") == 0 )
+			if( strcmp(ent->d_name, ".") == 0  && !list_dot )
+				continue;
+			if( strcmp(ent->d_name, "..") == 0 && !list_dotdot )
 				continue;
 
 			name = ent->d_name;
@@ -278,7 +292,9 @@ void directory_reader::read(const std::string & root_path)
 				break;
 			}
 
-			if( strcmp(ent->d_name, ".") == 0 || strcmp(ent->d_name, "..") == 0 )
+			if( strcmp(ent->d_name, ".") == 0  && !list_dot )
+				continue;
+			if( strcmp(ent->d_name, "..") == 0 && !list_dotdot )
 				continue;
 
 			name = ent->d_name;
@@ -331,13 +347,11 @@ void directory_reader::read(const std::string & root_path)
 			if( (st.st_mode & S_IFDIR) != 0 ) {
 #endif
 
-                void * data = nullptr;
-
-				if( list_directories && match )
-					data = manipulator();
+				if( list_directories && match && manipulator )
+					manipulator();
 
 				if( recursive && (max_level == 0 || stack.size() < max_level ) ) {
-					stack.push({ handle, data, path });
+					stack.push({ handle, path });
 					path += path_delimiter + name;
 #if _WIN32
 					handle = INVALID_HANDLE_VALUE;
@@ -347,8 +361,10 @@ void directory_reader::read(const std::string & root_path)
 					break;
 				}
 			}
-			else if( match )
-				manipulator();
+			else if( match ) {
+				if( manipulator )
+					manipulator();
+			}
 		}
 #if _WIN32
 		while( FindNextFileW(handle, &fdw) != 0 );
@@ -367,43 +383,23 @@ void directory_indexer::reindex(bool modified_only)
 {
 	modified_only = modified_only;
 
-	entry root;
-	{
-        directory_reader dr;
+    directory_reader dr;
 
-        dr.recursive = dr.list_directories = true;
-        dr.manipulator = [&] {
-            entry * parent = static_cast<entry *>(dr.stack.empty() ? &root : dr.stack.top().data);
-
-            parent->lst_.emplace_front(entry(parent, dr.level, dr.name, dr.mtime, dr.fsize, dr.isfreg));
-
-            std::string full_path_name;
-
-            for( auto p = parent; p != &root; p = p->parent_ )
-                full_path_name += p->name_ + directory_reader::path_delimiter;
-            full_path_name += dr.name;
-            std::cout << full_path_name << " " << dr.level << std::endl;
-
-            return &parent->lst_.front();
-        };
-
-        dr.read(get_cwd());
-    }
-
-	std::function<void(const entry &)> f;
-
-	f = [&] (const entry & parent) {
-		for( const auto & e : parent.lst_ ) {
-			if( e.isfreg_ ) {
-				for( auto p = &parent; p->parent_ != nullptr; p = p->parent_ )
-					std::cout << p->name_ << directory_reader::path_delimiter;
-				std::cout << e.name_ << std::endl;
-			}
-			f(e);
-		}
+    dr.recursive = dr.list_directories = true;
+	dr.manipulator = [&] {
+	
 	};
-
-	f(root);
+	
+    dr.read(get_cwd());
+	
+	int ivalue;
+    try {
+        std::ifstream in("in.txt");
+        in.exceptions(std::ifstream::failbit);
+        in >> ivalue;
+    } catch (std::ios_base::failure &fail) {
+        // handle exception here
+    }
 
 }
 //------------------------------------------------------------------------------

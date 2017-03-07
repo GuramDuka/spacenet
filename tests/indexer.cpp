@@ -90,7 +90,7 @@ void indexer_test()
 		fail = true;
 	}
 
-    std::cout << "indexer test " << (fail ? "failed" : "passed") << std::endl;
+    std::cerr << "indexer test " << (fail ? "failed" : "passed") << std::endl;
 }
 //------------------------------------------------------------------------------
 } // namespace tests

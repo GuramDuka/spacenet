@@ -25,12 +25,14 @@
 #include <iostream>
 //------------------------------------------------------------------------------
 #include "locale_traits.hpp"
+#include "cdc512.hpp"
 #include "indexer.hpp"
 //------------------------------------------------------------------------------
 int main(/*int argc,char ** argv*/)
 {
     //std::cout << "Hello world!" << std::endl;
     spacenet::tests::locale_traits_test();
+    spacenet::tests::cdc512_test();
     spacenet::tests::indexer_test();
 
     return 0;

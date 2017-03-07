@@ -24,33 +24,41 @@
 //------------------------------------------------------------------------------
 #include <iostream>
 //------------------------------------------------------------------------------
-#include "locale_traits.hpp"
+#include "cdc512.hpp"
 //------------------------------------------------------------------------------
 namespace spacenet {
 //------------------------------------------------------------------------------
-template <> thread_local const std::collate<char> * locale_traits<char>::coll =
-	&std::use_facet<std::collate<char>>(std::locale());
-//------------------------------------------------------------------------------
 namespace tests {
 //------------------------------------------------------------------------------
-void locale_traits_test()
+void cdc512_test()
 {
 	bool fail = false;
-
 	try {
-		lstring s1 = u8"А";
-		lstring s2 = u8"Б";
-		lstring s3 = u8"Я";
+		uint8_t t[240] = { 0 };
 
-		if( s1 >= s2 || s1 >= s3 || s2 <= s1 || s2 >= s3 || s3 <= s1 || s3 <= s2 )
-			throw std::runtime_error("bad locale traits implementation");
+		for( size_t i = 1; i < sizeof(t); i++ )
+			t[i] = t[i - 1] + 1;
+
+		cdc512 ctx1;
+		ctx1.init();
+		ctx1.update(t, sizeof(t));
+
+		std::cerr << ctx1.to_string() << std::endl;
+
+		t[3] ^= 0x40;
+
+		cdc512 ctx2;
+		ctx2.init();
+		ctx2.update(t, sizeof(t));
+
+		std::cerr << ctx1.to_string() << std::endl;
 
 	}
 	catch (...) {
 		fail = true;
 	}
 
-    std::cerr << "locale traits test " << (fail ? "failed" : "passed") << std::endl;
+    std::cerr << "cdc256 test " << (fail ? "failed" : "passed") << std::endl;
 }
 //------------------------------------------------------------------------------
 } // namespace tests

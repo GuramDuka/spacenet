@@ -22,75 +22,80 @@
  * THE SOFTWARE.
  */
 //------------------------------------------------------------------------------
-#ifndef INDEXER_HPP_INCLUDED
-#define INDEXER_HPP_INCLUDED
+#ifndef CDC512_HPP_INCLUDED
+#define CDC512_HPP_INCLUDED
 //------------------------------------------------------------------------------
 #pragma once
 //------------------------------------------------------------------------------
-#include <functional>
-#include <string>
-#include <forward_list>
+#include <cinttypes>
+//------------------------------------------------------------------------------
+#include "config.h"
 //------------------------------------------------------------------------------
 namespace spacenet {
 //------------------------------------------------------------------------------
-std::string get_cwd(bool no_back_slash = false);
-std::string path2rel(const std::string & path, bool no_back_slash = false);
-//------------------------------------------------------------------------------
-////////////////////////////////////////////////////////////////////////////////
-//------------------------------------------------------------------------------
-struct directory_reader {
-    static const char path_delimiter[];
-
-    std::function<void()> manipulator;
-
-    std::string path;
-    std::string path_name;
-    std::string name;
-    std::string mask;
-    std::string exclude;
-    uintptr_t level = 0;
-    uintptr_t max_level = 0;
-
-    bool list_dot = false;
-    bool list_dotdot = false;
-    bool list_directories = false;
-    bool recursive = false;
-
-    time_t atime = 0;
-    time_t ctime = 0;
-    time_t mtime = 0;
-    uint64_t fsize = 0;
-    bool isfreg = false;
-    bool islnk = false;
-
-    template <typename Manipul>
-    void read(const std::string & root_path, const Manipul & ml) {
-        this->manipulator = [&] {
-            ml();
-        };
-
-        read(root_path);
+constexpr uint32_t chtobe32(uint32_t x) {
+    if( MACHINE_LITTLE_ENDIAN ) {
+        x = ( x               << 16) ^  (x >> 16);
+        x = ((x & 0x00ff00ff) <<  8) ^ ((x >>  8) & 0x00ff00ff);
     }
-
-    void read(const std::string & root_path);
-};
+    return x;
+}
+//------------------------------------------------------------------------------
+inline uint32_t vhtobe32(uint32_t x) {
+    if( MACHINE_LITTLE_ENDIAN ) {
+        x = ( x               << 16) ^  (x >> 16);
+        x = ((x & 0x00ff00ff) <<  8) ^ ((x >>  8) & 0x00ff00ff);
+    }
+    return x;
+}
+//------------------------------------------------------------------------------
+constexpr uint64_t chtobe64(uint64_t x) {
+    if( MACHINE_LITTLE_ENDIAN ) {
+        //x = ((x & 0x00000000ffffffff) << 32) | ((x >> 32) & 0x00000000ffffffff);
+        x = (x << 32) | (x >> 32);
+        x = ((x & UINT64_C(0x0000ffff0000ffff)) << 16) | ((x >> 16) & UINT64_C(0x0000ffff0000ffff));
+        x = ((x & UINT64_C(0x00ff00ff00ff00ff)) <<  8) | ((x >>  8) & UINT64_C(0x00ff00ff00ff00ff));
+    }
+    return x;
+}
+//------------------------------------------------------------------------------
+inline uint64_t vhtobe64(uint64_t x) {
+    if( MACHINE_LITTLE_ENDIAN ) {
+        //x = ((x & 0x00000000ffffffff) << 32) | ((x >> 32) & 0x00000000ffffffff);
+        x = (x << 32) | (x >> 32);
+        x = ((x & UINT64_C(0x0000ffff0000ffff)) << 16) | ((x >> 16) & UINT64_C(0x0000ffff0000ffff));
+        x = ((x & UINT64_C(0x00ff00ff00ff00ff)) <<  8) | ((x >>  8) & UINT64_C(0x00ff00ff00ff00ff));
+    }
+    return x;
+}
 //------------------------------------------------------------------------------
 ////////////////////////////////////////////////////////////////////////////////
 //------------------------------------------------------------------------------
-class directory_indexer {
-    private:
-    protected:
-    public:
-        void reindex(bool modified_only = true);
+struct cdc512_data {
+    union {
+        uint64_t a, b, c, d, e, f, g, h;
+        uint8_t data[sizeof(uint64_t) * 8];
+    };
+  
+    void shuffle(const cdc512_data & v);
+};
+//---------------------------------------------------------------------------
+struct cdc512 : public cdc512_data {
+    uint64_t p;
+
+    void init();
+    void update(const void * data, uintptr_t size);
+
+    std::string to_string();
 };
 //------------------------------------------------------------------------------
 namespace tests {
 //------------------------------------------------------------------------------
-void indexer_test();
+void cdc512_test();
 //------------------------------------------------------------------------------
 } // namespace tests
 //------------------------------------------------------------------------------
 } // namespace spacenet
 //------------------------------------------------------------------------------
-#endif // INDEXER_HPP_INCLUDED
+#endif // CDC512_HPP_INCLUDED
 //------------------------------------------------------------------------------

@@ -39,5 +39,18 @@
 #define HAVE_READDIR_R (_POSIX_C_SOURCE >= 1 || _XOPEN_SOURCE || _BSD_SOURCE || _SVID_SOURCE || _POSIX_SOURCE)
 #endif
 //------------------------------------------------------------------------------
+#if __cplusplus
+constexpr bool MACHINE_LITTLE_ENDIAN_F() {
+    union {
+        unsigned char c;
+        unsigned x;
+    } u = {};
+    u.x = 0;
+    u.c = 1;
+    return u.x < 0x10000u;
+}
+constexpr bool MACHINE_LITTLE_ENDIAN = MACHINE_LITTLE_ENDIAN_F();
+#endif
+//------------------------------------------------------------------------------
 #endif // CONFIG_H_INCLUDED
 //------------------------------------------------------------------------------
