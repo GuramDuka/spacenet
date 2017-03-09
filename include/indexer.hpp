@@ -31,8 +31,11 @@
 #include <string>
 #include <forward_list>
 //------------------------------------------------------------------------------
+#include "sqlite/sqlite_modern_cpp.h"
+//------------------------------------------------------------------------------
 namespace spacenet {
 //------------------------------------------------------------------------------
+std::string temp_name(std::string dir = std::string(), std::string pfx = std::string());
 std::string get_cwd(bool no_back_slash = false);
 std::string path2rel(const std::string & path, bool no_back_slash = false);
 //------------------------------------------------------------------------------
@@ -56,9 +59,12 @@ struct directory_reader {
     bool list_directories = false;
     bool recursive = false;
 
-    time_t atime = 0;
-    time_t ctime = 0;
-    time_t mtime = 0;
+    uint64_t atime = 0;
+    uint64_t ctime = 0;
+    uint64_t mtime = 0;
+    uint32_t atime_nsec = 0;
+    uint32_t ctime_nsec = 0;
+    uint32_t mtime_nsec = 0;
     uint64_t fsize = 0;
     bool isfreg = false;
     bool islnk = false;
@@ -81,7 +87,7 @@ class directory_indexer {
     private:
     protected:
     public:
-        void reindex(bool modified_only = true);
+        void reindex(sqlite::database & db, bool modified_only = true);
 };
 //------------------------------------------------------------------------------
 namespace tests {

@@ -49,7 +49,8 @@ constexpr bool MACHINE_LITTLE_ENDIAN_F() {
     u.c = 1;
     return u.x < 0x10000u;
 }
-constexpr bool MACHINE_LITTLE_ENDIAN = MACHINE_LITTLE_ENDIAN_F();
+constexpr bool MACHINE_LITTLE_ENDIAN = noexcept(MACHINE_LITTLE_ENDIAN_F());
+constexpr bool MACHINE_BIG_ENDIAN = noexcept(!MACHINE_LITTLE_ENDIAN_F());
 #endif
 //------------------------------------------------------------------------------
 #endif // CONFIG_H_INCLUDED

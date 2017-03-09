@@ -33,6 +33,22 @@
 //------------------------------------------------------------------------------
 namespace spacenet {
 //------------------------------------------------------------------------------
+constexpr uint32_t cbe32toh(uint32_t x) {
+    if( MACHINE_LITTLE_ENDIAN ) {
+        x = ( x               << 16) ^  (x >> 16);
+        x = ((x & 0x00ff00ff) <<  8) ^ ((x >>  8) & 0x00ff00ff);
+    }
+    return x;
+}
+//------------------------------------------------------------------------------
+inline uint32_t vbe32toh(uint32_t x) {
+    if( MACHINE_LITTLE_ENDIAN ) {
+        x = ( x               << 16) ^  (x >> 16);
+        x = ((x & 0x00ff00ff) <<  8) ^ ((x >>  8) & 0x00ff00ff);
+    }
+    return x;
+}
+//------------------------------------------------------------------------------
 constexpr uint32_t chtobe32(uint32_t x) {
     if( MACHINE_LITTLE_ENDIAN ) {
         x = ( x               << 16) ^  (x >> 16);
@@ -45,6 +61,26 @@ inline uint32_t vhtobe32(uint32_t x) {
     if( MACHINE_LITTLE_ENDIAN ) {
         x = ( x               << 16) ^  (x >> 16);
         x = ((x & 0x00ff00ff) <<  8) ^ ((x >>  8) & 0x00ff00ff);
+    }
+    return x;
+}
+//------------------------------------------------------------------------------
+constexpr uint64_t cbe64toh(uint64_t x) {
+    if( MACHINE_LITTLE_ENDIAN ) {
+        //x = ((x & 0x00000000ffffffff) << 32) | ((x >> 32) & 0x00000000ffffffff);
+        x = (x << 32) | (x >> 32);
+        x = ((x & UINT64_C(0x0000ffff0000ffff)) << 16) | ((x >> 16) & UINT64_C(0x0000ffff0000ffff));
+        x = ((x & UINT64_C(0x00ff00ff00ff00ff)) <<  8) | ((x >>  8) & UINT64_C(0x00ff00ff00ff00ff));
+    }
+    return x;
+}
+//------------------------------------------------------------------------------
+inline uint64_t vbe64toh(uint64_t x) {
+    if( MACHINE_LITTLE_ENDIAN ) {
+        //x = ((x & 0x00000000ffffffff) << 32) | ((x >> 32) & 0x00000000ffffffff);
+        x = (x << 32) | (x >> 32);
+        x = ((x & UINT64_C(0x0000ffff0000ffff)) << 16) | ((x >> 16) & UINT64_C(0x0000ffff0000ffff));
+        x = ((x & UINT64_C(0x00ff00ff00ff00ff)) <<  8) | ((x >>  8) & UINT64_C(0x00ff00ff00ff00ff));
     }
     return x;
 }
@@ -72,19 +108,29 @@ inline uint64_t vhtobe64(uint64_t x) {
 ////////////////////////////////////////////////////////////////////////////////
 //------------------------------------------------------------------------------
 struct cdc512_data {
-    union {
-        uint64_t a, b, c, d, e, f, g, h;
-        uint8_t data[sizeof(uint64_t) * 8];
-    };
+    uint64_t a, b, c, d, e, f, g, h;
   
+    void shuffle();
     void shuffle(const cdc512_data & v);
 };
 //---------------------------------------------------------------------------
 struct cdc512 : public cdc512_data {
+    union {
+        struct {
+            uint64_t ba, bb, bc, bd, be, bf, bg, bh;
+        };
+        uint8_t digest[sizeof(cdc512_data)];
+    };
     uint64_t p;
 
     void init();
     void update(const void * data, uintptr_t size);
+    void finish();
+    
+    template <class InputIt>
+    void update(InputIt first, InputIt last) {
+        update(&(*first), (last - first) * sizeof(*first));
+    }
 
     std::string to_string();
 };
