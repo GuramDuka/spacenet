@@ -123,15 +123,44 @@ struct cdc512 : public cdc512_data {
     };
     uint64_t p;
 
+    cdc512() {
+        init();
+    }
+    
+    cdc512(leave_uninitialized_type) {}
+    
+    template <class InputIt>
+    cdc512(InputIt first, InputIt last) {
+        init();
+        update(first, last);
+        finish();
+    }
+    
     void init();
     void update(const void * data, uintptr_t size);
     void finish();
-    
-    template <class InputIt>
+
+    template <typename InputIt>
     void update(InputIt first, InputIt last) {
         update(&(*first), (last - first) * sizeof(*first));
     }
 
+    template <typename InputIt, typename Container>
+    void update(Container & c, InputIt first, InputIt last) {
+        init();
+        update(first, last);
+        finish();
+        c.assign(std::cbegin(digest), std::cend(digest));
+    }
+    
+    auto cbegin() {
+        return std::cbegin(digest);
+    }
+
+    auto cend() {
+        return std::cend(digest);
+    }
+    
     std::string to_string();
 };
 //------------------------------------------------------------------------------

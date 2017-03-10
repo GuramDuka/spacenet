@@ -40,6 +40,7 @@
 #endif
 //------------------------------------------------------------------------------
 #if __cplusplus
+//------------------------------------------------------------------------------
 constexpr bool MACHINE_LITTLE_ENDIAN_F() {
     union {
         unsigned char c;
@@ -51,6 +52,12 @@ constexpr bool MACHINE_LITTLE_ENDIAN_F() {
 }
 constexpr bool MACHINE_LITTLE_ENDIAN = noexcept(MACHINE_LITTLE_ENDIAN_F());
 constexpr bool MACHINE_BIG_ENDIAN = noexcept(!MACHINE_LITTLE_ENDIAN_F());
+//------------------------------------------------------------------------------
+namespace spacenet {
+struct leave_uninitialized_type {};
+constexpr const leave_uninitialized_type leave_uninitialized = {};
+}
+//------------------------------------------------------------------------------
 #endif
 //------------------------------------------------------------------------------
 #endif // CONFIG_H_INCLUDED

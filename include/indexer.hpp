@@ -32,6 +32,7 @@
 #include <forward_list>
 //------------------------------------------------------------------------------
 #include "sqlite/sqlite_modern_cpp.h"
+#include "sqlite3pp/sqlite3pp.h"
 //------------------------------------------------------------------------------
 namespace spacenet {
 //------------------------------------------------------------------------------
@@ -66,8 +67,9 @@ struct directory_reader {
     uint32_t ctime_nsec = 0;
     uint32_t mtime_nsec = 0;
     uint64_t fsize = 0;
-    bool isfreg = false;
-    bool islnk = false;
+    bool is_dir = false;
+    bool is_reg = false;
+    bool is_lnk = false;
 
     template <typename Manipul>
     void read(const std::string & root_path, const Manipul & ml) {
@@ -88,6 +90,7 @@ class directory_indexer {
     protected:
     public:
         void reindex(sqlite::database & db, bool modified_only = true);
+        void reindex(sqlite3pp::database & db, bool modified_only = true);
 };
 //------------------------------------------------------------------------------
 namespace tests {

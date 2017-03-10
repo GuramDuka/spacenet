@@ -44,14 +44,14 @@ void indexer_test()
 			std::string name_;
 			decltype(dr.mtime) mtime_;
 			decltype(dr.fsize) size_;
-			decltype(dr.isfreg) isfreg_;
+			decltype(dr.is_reg) is_reg_;
 
 			entry() {}
-			entry(std::string name, decltype(mtime_) mtime, decltype(size_) fsize, decltype(dr.isfreg) isfreg) :
+			entry(std::string name, decltype(mtime_) mtime, decltype(size_) fsize, decltype(dr.is_reg) is_reg) :
 				name_(std::move(name)),
 				mtime_(std::move(mtime)),
 				size_(std::move(fsize)),
-				isfreg_(std::move(isfreg))
+				is_reg_(std::move(is_reg))
 				{}
 		};
 
@@ -59,7 +59,7 @@ void indexer_test()
 
 		dr.recursive = dr.list_directories = true;
 		dr.manipulator = [&] {
-			lst.emplace_back(entry(dr.path_name, dr.mtime, dr.fsize, dr.isfreg));
+			lst.emplace_back(entry(dr.path_name, dr.mtime, dr.fsize, dr.is_reg));
 			return nullptr;
 		};
 
@@ -68,7 +68,7 @@ void indexer_test()
 		locale_traits<char> comparator;
 
 		std::function<bool (const entry & a, const entry & b)> sorter = [&] (const auto & a, const auto & b) {
-			int r = (a.isfreg_ ? 1 : 0) - (b.isfreg_ ? 1 : 0);
+			int r = (a.is_reg_ ? 1 : 0) - (b.is_reg_ ? 1 : 0);
 
 			if( r == 0 )
 				r = comparator.compare(a.name_, b.name_);
@@ -82,8 +82,28 @@ void indexer_test()
 		//	std::cout << e.name_ << std::endl;
 
 		directory_indexer di;
+		std::string db_name = temp_name();
+		
+		//sqlite::sqlite_config db_config;
+        //db_config.flags = sqlite::OpenFlags::READWRITE | sqlite::OpenFlags::CREATE;
+		//db_config.encoding = sqlite::Encoding::UTF8;
+		//sqlite::database db(db_name, db_config); // ":memory:"
+		//sqlite3_busy_timeout(db.connection().get(), 15000); // milliseconds
+		sqlite3pp::database db(db_name);
 
-		di.reindex();
+		sqlite3pp::command pragmas(db, R"EOS(
+			PRAGMA page_size = 4096;
+			PRAGMA journal_mode = WAL;
+			PRAGMA count_changes = OFF;
+			PRAGMA auto_vacuum = NONE;
+			PRAGMA cache_size = -2048;
+			PRAGMA synchronous = NORMAL;
+			PRAGMA temp_store = MEMORY;
+		)EOS");
+		
+		pragmas.execute_all();
+		
+		di.reindex(db);
 
 	}
 	catch (...) {
