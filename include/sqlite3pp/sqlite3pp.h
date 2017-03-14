@@ -33,13 +33,14 @@
 #include <cstring>
 #include <functional>
 #include <iterator>
-#include <sqlite3.h>
 #include <stdexcept>
 #include <string>
 #include <tuple>
 //#include <variant>
 #include <vector>
 #include <unordered_map>
+
+#include "sqlite/sqlite3.h"
 
 namespace sqlite3pp {
     namespace ext {
@@ -369,10 +370,6 @@ namespace sqlite3pp {
             return sqlite3_bind_int64(stmt_, idx, value);
         }
 
-        int bind(int idx, uint64_t value) {
-            return sqlite3_bind_int64(stmt_, idx, value);
-        }
-        
         int bind(int idx, char const* value, copy_semantic fcopy) {
             return sqlite3_bind_text(stmt_, idx, value, std::strlen(value), fcopy == copy ? SQLITE_TRANSIENT : SQLITE_STATIC);
         }
@@ -423,11 +420,6 @@ namespace sqlite3pp {
             return bind(idx, value);
         }
 
-        int bind(char const* name, uint64_t value) {
-            auto idx = sqlite3_bind_parameter_index(stmt_, name);
-            return bind(idx, value);
-        }
-        
         int bind(char const* name, char const* value, copy_semantic fcopy) {
             auto idx = sqlite3_bind_parameter_index(stmt_, name);
             return bind(idx, value, fcopy);

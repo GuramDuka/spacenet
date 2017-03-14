@@ -1,7 +1,7 @@
 TEMPLATE = app
 
 QT += qml quick
-CONFIG += c++11
+CONFIG += c++14
 
 SOURCES += \
     ../../../src/cdc512.cpp \
@@ -9,7 +9,10 @@ SOURCES += \
     ../../../src/main.cpp \
     ../../../tests/cdc512_test.cpp \
     ../../../tests/indexer_test.cpp \
-    ../../../tests/locale_traits_test.cpp
+    ../../../tests/locale_traits_test.cpp \
+    ../../../src/sqlite3.c \
+    ../../../tests/tests.cpp \
+    ../../../src/locale_traits.cpp
 
 RESOURCES += qml.qrc
 
@@ -33,10 +36,11 @@ HEADERS += \
     ../../../include/sqlite/sqlite_modern_cpp/sqlcipher.h \
     ../../../include/sqlite/sqlite_modern_cpp/utility/function_traits.h \
     ../../../include/sqlite/sqlite_modern_cpp/utility/uncaught_exceptions.h \
-    ../../../include/sqlite/sqlite_modern_cpp/utility/variant.h
+    ../../../include/sqlite/sqlite_modern_cpp/utility/variant.h \
+    ../../../include/sqlite/sqlite3.h \
+    ../../../include/sqlite/sqlite3ext.h
 
 INCLUDEPATH += .
 INCLUDEPATH += ../../../include
 
-QMAKE_CXXFLAGS += -std=c++17
-
+#QMAKE_CXXFLAGS += -std=c++17

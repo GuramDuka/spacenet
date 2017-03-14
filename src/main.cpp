@@ -22,19 +22,20 @@
  * THE SOFTWARE.
  */
 //------------------------------------------------------------------------------
-#include <iostream>
+#include <QGuiApplication>
+#include <QQmlApplicationEngine>
 //------------------------------------------------------------------------------
-#include "locale_traits.hpp"
-#include "cdc512.hpp"
-#include "indexer.hpp"
+#include "config.h"
 //------------------------------------------------------------------------------
-int main(/*int argc,char ** argv*/)
+int main(int argc,char ** argv)
 {
-    //std::cout << "Hello world!" << std::endl;
-    spacenet::tests::locale_traits_test();
-    spacenet::tests::cdc512_test();
-    spacenet::tests::indexer_test();
+    spacenet::tests::run_tests();
 
-    return 0;
+    QGuiApplication app(argc, argv);
+
+    QQmlApplicationEngine engine;
+    engine.load(QUrl(QStringLiteral("qrc:/main.qml")));
+
+    return app.exec();
 }
 //------------------------------------------------------------------------------

@@ -30,6 +30,7 @@
 #include <locale>
 #include <string>
 #include <type_traits>
+#include <codecvt>
 //------------------------------------------------------------------------------
 namespace spacenet {
 //------------------------------------------------------------------------------
@@ -66,8 +67,18 @@ struct locale_traits : public std::char_traits<CharType> {
 //	}
 };
 //------------------------------------------------------------------------------
-typedef std::basic_string<char, locale_traits<char>> lstring;
+//typedef std::basic_string<char, locale_traits<char>> lstring;
 //typedef std::basic_string<wchar_t, locale_traits<wchar_t>> lwstring;
+//------------------------------------------------------------------------------
+inline std::wstring str2wstr(const std::string & str) {
+    std::wstring_convert<std::codecvt<wchar_t, char, std::mbstate_t>> convert;
+    return convert.from_bytes(str);
+}
+//------------------------------------------------------------------------------
+inline std::string wstr2str(const std::wstring & str) {
+    std::wstring_convert<std::codecvt<wchar_t, char, std::mbstate_t>> convert;
+    return convert.to_bytes(str);
+}
 //------------------------------------------------------------------------------
 namespace tests {
 //------------------------------------------------------------------------------

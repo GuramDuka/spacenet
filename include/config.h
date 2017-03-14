@@ -35,8 +35,12 @@
 #include <unistd.h>
 #endif
 //------------------------------------------------------------------------------
-#if !defined(HAVE_READDIR_R) && (!defined(__GNUC_PREREQ) || !__GNUC_PREREQ (3,2))
-#define HAVE_READDIR_R (_POSIX_C_SOURCE >= 1 || _XOPEN_SOURCE || _BSD_SOURCE || _SVID_SOURCE || _POSIX_SOURCE)
+#if !defined(HAVE_READDIR_R)
+#   if defined(__GNUC_PREREQ)
+#       if __GNUC_PREREQ (3,2))
+#           define HAVE_READDIR_R (_POSIX_C_SOURCE >= 1 || _XOPEN_SOURCE || _BSD_SOURCE || _SVID_SOURCE || _POSIX_SOURCE)
+#       endif
+#   endif
 #endif
 //------------------------------------------------------------------------------
 #if __cplusplus
@@ -48,6 +52,7 @@ constexpr bool MACHINE_LITTLE_ENDIAN_F() {
     } u = {};
     u.x = 0;
     u.c = 1;
+    //static_assert( u.x != 0, "machine byte order detection falied");
     return u.x < 0x10000u;
 }
 constexpr bool MACHINE_LITTLE_ENDIAN = noexcept(MACHINE_LITTLE_ENDIAN_F());
@@ -57,6 +62,8 @@ namespace spacenet {
 struct leave_uninitialized_type {};
 constexpr const leave_uninitialized_type leave_uninitialized = {};
 }
+//------------------------------------------------------------------------------
+namespace spacenet { namespace tests { void run_tests(); }}
 //------------------------------------------------------------------------------
 #endif
 //------------------------------------------------------------------------------

@@ -36,6 +36,9 @@
 #include <atomic>
 #include <unordered_map>
 #include <typeinfo>
+#if _WIN32
+#include <windows.h>
+#endif
 //------------------------------------------------------------------------------
 #if defined(_S_IFDIR) && !defined(S_IFDIR)
 #define S_IFDIR _S_IFDIR
@@ -43,13 +46,25 @@
 #if defined(_S_IFREG) && !defined(S_IFREG)
 #define S_IFREG _S_IFREG
 #endif
+#if !defined(S_IFLNK)
+#define S_IFLNK 0
+#endif
 //------------------------------------------------------------------------------
 #include "config.h"
 #include "scope_exit.hpp"
+#include "locale_traits.hpp"
 #include "cdc512.hpp"
 #include "indexer.hpp"
 //------------------------------------------------------------------------------
 namespace spacenet {
+//------------------------------------------------------------------------------
+const char path_delimiter[] =
+#if _WIN32
+    "\\"
+#else
+    "/"
+#endif
+;
 //------------------------------------------------------------------------------
 std::string temp_name(std::string dir, std::string pfx)
 {
@@ -59,8 +74,19 @@ std::string temp_name(std::string dir, std::string pfx)
 	int pid = getpid();
 
 	if( dir.empty() )
-		dir = P_tmpdir;
-	if( pfx.empty() )
+ #if _WIN32
+    {
+        DWORD a = GetTempPathW(0, NULL);
+        wchar_t * s = static_cast<wchar_t *>(alloca(sizeof(wchar_t) * a));
+        GetTempPathW(a, s);
+        dir = wstr2str(s);
+        if( dir.back() == path_delimiter[0] )
+            dir.pop_back();
+    }
+ #else
+        dir = P_tmpdir;
+ #endif
+    if( pfx.empty() )
 		pfx = "temp";
 
 	if( access(dir.c_str(), R_OK | W_OK | X_OK) != 0 )
@@ -90,9 +116,9 @@ std::string get_cwd(bool no_back_slash)
 {
 #if _WIN32
 	DWORD a = GetCurrentDirectoryW(0, NULL) + 1;
-	std::unique_ptr<wchar_t> dir_name(new wchar_t [a]);
-	GetCurrentDirectoryW(a, dir_name.get());
-	return booster::nowide::convert(dir_name.get()) + (no_back_slash ? "" : "\\");
+    wchar_t * s = static_cast<wchar_t *>(alloca(sizeof(wchar_t) * a));
+    GetCurrentDirectoryW(a, s);
+    return wstr2str(s) + (no_back_slash ? "" : "\\");
 #else
 	std::string s;
 
@@ -126,12 +152,35 @@ std::string get_cwd(bool no_back_slash)
 #endif
 }
 //------------------------------------------------------------------------------
+static std::string str_replace(const std::string & subject, const std::string & search, const std::string & replace)
+{
+    std::string s;
+    const std::string::size_type l = search.length();
+    std::string::const_iterator sb = search.cbegin(), se = search.cend(),
+        b = subject.cbegin(), e = subject.cend(), i;
+
+    for( ;;) {
+        i = std::search(b, e, sb, se);
+
+        if( i == e )
+            break;
+
+        s.append(b, i).append(replace);
+        b = i + l;
+    }
+
+    s.append(b, i);
+
+    return s;
+}
+//------------------------------------------------------------------------------
 std::string path2rel(const std::string & path, bool no_back_slash)
 {
-	std::string file_path = path.find('/') == 0 ? path.substr(1) : path;
+    std::string file_path;
 #if _WIN32
-	if( !file_path.empty() ) {
-		file_path = std::str_replace(file_path, "/", "\\");
+    if( !file_path.empty() ) {
+        file_path = str_replace(file_path, "/", "\\");
+        file_path = path.find('\\') == 0 ? path.substr(1) : path;
 
 		if( no_back_slash ) {
 			if( file_path.back() == '\\' )
@@ -142,7 +191,9 @@ std::string path2rel(const std::string & path, bool no_back_slash)
 		}
 	}
 #else
-	if( !file_path.empty() ) {
+    if( !file_path.empty() ) {
+        file_path = str_replace(file_path, "\\", "/");
+        file_path = path.find('/') == 0 ? path.substr(1) : path;
 
 		if( no_back_slash ) {
 			if( file_path.back() == '/' )
@@ -171,7 +222,7 @@ struct file_stat :
 
 	int stat(const std::string & file_name) noexcept {
 #if _WIN32
-		return _wstat64(booster::nowide::convert(file_name).c_str(), this);
+        return _wstat64(str2wstr(file_name).c_str(), this);
 #else
 		return ::stat(file_name.c_str(), this);
 #endif
@@ -179,14 +230,6 @@ struct file_stat :
 };
 //------------------------------------------------------------------------------
 ////////////////////////////////////////////////////////////////////////////////
-//------------------------------------------------------------------------------
-const char directory_reader::path_delimiter[] =
-#if _WIN32
-	"\\"
-#else
-	"/"
-#endif
-;
 //------------------------------------------------------------------------------
 void directory_reader::read(const std::string & root_path)
 {
@@ -246,7 +289,8 @@ void directory_reader::read(const std::string & root_path)
 
 #if _WIN32
 		if( handle == INVALID_HANDLE_VALUE ) {
-			handle = FindFirstFileW(booster::nowide::convert(path + "\\*").c_str(), &fdw);
+            auto fffs = str2wstr(path + "\\*");
+            handle = FindFirstFileW(fffs.c_str(), &fdw);
 #else
 		if( handle == nullptr ) {
 			handle = ::opendir(path.c_str());
@@ -302,7 +346,7 @@ void directory_reader::read(const std::string & root_path)
 			if( lstrcmpW(fdw.cFileName, L"..") == 0 && !list_dotdot )
 				continue;
 
-			name = booster::nowide::convert(fdw.cFileName);
+            name = wstr2str(fdw.cFileName);
 #elif HAVE_READDIR_R
 		for(;;) {
 			if( readdir_r(handle, ent, &result) != 0 ) {
@@ -344,19 +388,45 @@ void directory_reader::read(const std::string & root_path)
 				match = !std::regex_match(name, exclude_regex);
 
 			path_name = path + path_delimiter + name;
-			file_stat fs(path_name);
+
+#if _WIN32
+            fsize = fdw.nFileSizeHigh;
+            fsize <<= 32;
+            fsize += fdw.nFileSizeLow;
+            is_reg = (fdw.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) == 0;
+            is_dir = (fdw.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
+            is_lnk = false;
+
+            ULARGE_INTEGER q;
+
+            q.LowPart = fdw.ftLastAccessTime.dwLowDateTime;
+            q.HighPart = fdw.ftLastAccessTime.dwHighDateTime;
+            atime = q.QuadPart / 10000000;
+            atime_nsec = (q.QuadPart % 10000000) * 100;
+
+            q.LowPart = fdw.ftCreationTime.dwLowDateTime;
+            q.HighPart = fdw.ftCreationTime.dwHighDateTime;
+            ctime = q.QuadPart / 10000000;
+            ctime_nsec = (q.QuadPart % 10000000) * 100;
+
+            q.LowPart = fdw.ftLastWriteTime.dwLowDateTime;
+            q.HighPart = fdw.ftLastWriteTime.dwHighDateTime;
+            mtime = q.QuadPart / 10000000;
+            ctime_nsec = (q.QuadPart % 10000000) * 100;
+#else
+            file_stat fs(path_name);
 
 			if( (err = errno) != 0 )
 				throw std::runtime_error("Failed to read file info: " + path_name + ", " + std::to_string(err));
 
 			//if( (fs.st_mode & type_mask) == 0 )
 			//	continue;
+            atime = fs.st_atime;
+            ctime = fs.st_ctime;
+            mtime = fs.st_mtime;
 #if __USE_XOPEN2K8
-			atime = fs.st_atim.tv_sec;
 			atime_nsec = fs.st_atim.tv_nsec;
-			ctime = fs.st_ctime;
 			ctime_nsec = fs.st_ctim.tv_nsec;
-			mtime = fs.st_mtime;
 			mtime_nsec = fs.st_mtim.tv_nsec;
 #else
 			atime_nsec = fs.st_atimensec;
@@ -367,6 +437,7 @@ void directory_reader::read(const std::string & root_path)
 			is_reg = (fs.st_mode & S_IFREG) != 0;
 			is_dir = (fs.st_mode & S_IFDIR) != 0;
 			is_lnk = (fs.st_mode & S_IFLNK) != 0;
+#endif
 #if _WIN32
 			if( (fdw.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0 ) {
 #elif __USE_MISC
@@ -451,7 +522,7 @@ void directory_indexer::reindex(sqlite::database & db, bool modified_only)
 			entry_id		BLOB,
 			block_no		INTEGER,
 			digest			BLOB
-		) /*WITHOUT ROWID*/)EOS",
+        )/* WITHOUT ROWID*/)EOS",
 		"CREATE INDEX IF NOT EXISTS i3 ON blocks_digests (entry_id)",
 		"CREATE UNIQUE INDEX IF NOT EXISTS i4 ON blocks_digests (entry_id, block_no)"
 		} )

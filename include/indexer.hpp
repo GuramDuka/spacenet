@@ -36,6 +36,8 @@
 //------------------------------------------------------------------------------
 namespace spacenet {
 //------------------------------------------------------------------------------
+extern const char path_delimiter[];
+//------------------------------------------------------------------------------
 std::string temp_name(std::string dir = std::string(), std::string pfx = std::string());
 std::string get_cwd(bool no_back_slash = false);
 std::string path2rel(const std::string & path, bool no_back_slash = false);
@@ -43,8 +45,6 @@ std::string path2rel(const std::string & path, bool no_back_slash = false);
 ////////////////////////////////////////////////////////////////////////////////
 //------------------------------------------------------------------------------
 struct directory_reader {
-    static const char path_delimiter[];
-
     std::function<void()> manipulator;
 
     std::string path;
