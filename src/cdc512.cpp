@@ -24,7 +24,6 @@
 //------------------------------------------------------------------------------
 #include <cstring>
 #include <iomanip>
-#include <sstream>
 //------------------------------------------------------------------------------
 #include "cdc512.hpp"
 //------------------------------------------------------------------------------
@@ -110,10 +109,12 @@ void cdc512::update(const void * data, uintptr_t size)
 //---------------------------------------------------------------------------
 void cdc512::finish()
 {
-	cdc512_data pad = { p, p, p, p, p, p, p, p };
+    if( p ) {
+        cdc512_data pad = { p, p, p, p, p, p, p, p };
 	
-	shuffle(pad);
-	shuffle();
+        shuffle(pad);
+        shuffle();
+    }
 	
 	ba = vhtobe64(a);
 	bb = vhtobe64(b);
@@ -125,9 +126,9 @@ void cdc512::finish()
 	bh = vhtobe64(h);
 }
 //---------------------------------------------------------------------------
-std::string cdc512::to_string()
+string cdc512::to_string()
 {
-	std::stringstream s;
+    stringstream s;
 	
 	s.fill('0');
 	s.width(2);

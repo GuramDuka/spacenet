@@ -22,12 +22,110 @@
  * THE SOFTWARE.
  */
 //------------------------------------------------------------------------------
+#if _WIN32
+#include <windows.h>
+#endif
+//------------------------------------------------------------------------------
 #include "locale_traits.hpp"
 //------------------------------------------------------------------------------
 namespace spacenet {
 //------------------------------------------------------------------------------
 template <> thread_local const std::collate<char> * locale_traits<char>::coll =
 	&std::use_facet<std::collate<char>>(std::locale());
+//------------------------------------------------------------------------------
+static std::wstring_convert<std::codecvt_utf8_utf16<wchar_t>> converter;
+//------------------------------------------------------------------------------
+std::wstring str2wstr(const std::string & str)
+{
+    try {
+#if _WIN32
+        size_t sz = str.size();
+
+        if( sz > INT_MAX )
+            throw std::range_error("String is too big");
+
+        size_t charsNeeded = MultiByteToWideChar(CP_UTF8, 0, str.c_str(), int(sz), NULL, 0);
+
+        if( charsNeeded == 0 )
+            throw std::range_error("Failed converting UTF-8 string to UTF-16");
+
+        std::wstring buffer;
+
+        buffer.resize(charsNeeded);
+
+        int charsConverted = MultiByteToWideChar(CP_UTF8, 0, str.c_str(), int(sz), &buffer[0], buffer.size());
+
+        if( charsConverted == 0 )
+            throw std::range_error("Failed converting UTF-8 string to UTF-16");
+
+        return buffer;
+#else
+        return converter.from_bytes(str);
+#endif
+    }
+    catch( std::range_error & e ) {
+        size_t length = str.length();
+        std::wstring result;
+
+        result.reserve(length);
+
+        for( auto c : str )
+            result.push_back(c);
+
+        return result;
+    }
+}
+//------------------------------------------------------------------------------
+std::string wstr2str(const std::wstring & str)
+{
+    return converter.to_bytes(str);
+}
+//------------------------------------------------------------------------------
+#if _WIN32
+//------------------------------------------------------------------------------
+std::string str2utf(const string & str)
+{
+    return converter.to_bytes(str);
+}
+//------------------------------------------------------------------------------
+string utf2str(const std::string & str)
+{
+    try {
+        size_t sz = str.size();
+
+        if( sz > INT_MAX )
+            throw std::range_error("String is too big");
+
+        size_t charsNeeded = MultiByteToWideChar(CP_UTF8, 0, str.c_str(), int(sz), NULL, 0);
+
+        if( charsNeeded == 0 )
+            throw std::range_error("Failed converting UTF-8 string to UTF-16");
+
+        std::wstring buffer;
+
+        buffer.resize(charsNeeded);
+
+        int charsConverted = MultiByteToWideChar(CP_UTF8, 0, str.c_str(), int(sz), &buffer[0], buffer.size());
+
+        if( charsConverted == 0 )
+            throw std::range_error("Failed converting UTF-8 string to UTF-16");
+
+        return buffer;
+    }
+    catch( std::range_error & e ) {
+        size_t length = str.length();
+        std::wstring result;
+
+        result.reserve(length);
+
+        for( auto c : str )
+            result.push_back(c);
+
+        return result;
+    }
+}
+//------------------------------------------------------------------------------
+#endif
 //------------------------------------------------------------------------------
 } // namespace spacenet
 //------------------------------------------------------------------------------

@@ -33,25 +33,27 @@
 //------------------------------------------------------------------------------
 #include "sqlite/sqlite_modern_cpp.h"
 #include "sqlite3pp/sqlite3pp.h"
+#include "locale_traits.hpp"
 //------------------------------------------------------------------------------
 namespace spacenet {
 //------------------------------------------------------------------------------
-extern const char path_delimiter[];
+extern const string::value_type path_delimiter[];
 //------------------------------------------------------------------------------
-std::string temp_name(std::string dir = std::string(), std::string pfx = std::string());
-std::string get_cwd(bool no_back_slash = false);
-std::string path2rel(const std::string & path, bool no_back_slash = false);
+string temp_path(bool no_back_slash = false);
+string temp_name(string dir = string(), string pfx = string());
+string get_cwd(bool no_back_slash = false);
+string path2rel(const string & path, bool no_back_slash = false);
 //------------------------------------------------------------------------------
 ////////////////////////////////////////////////////////////////////////////////
 //------------------------------------------------------------------------------
 struct directory_reader {
     std::function<void()> manipulator;
 
-    std::string path;
-    std::string path_name;
-    std::string name;
-    std::string mask;
-    std::string exclude;
+    string path;
+    string path_name;
+    string name;
+    string mask;
+    string exclude;
     uintptr_t level = 0;
     uintptr_t max_level = 0;
 
@@ -63,16 +65,16 @@ struct directory_reader {
     uint64_t atime = 0;
     uint64_t ctime = 0;
     uint64_t mtime = 0;
-    uint32_t atime_nsec = 0;
-    uint32_t ctime_nsec = 0;
-    uint32_t mtime_nsec = 0;
+    uint32_t atime_ns = 0;
+    uint32_t ctime_ns = 0;
+    uint32_t mtime_ns = 0;
     uint64_t fsize = 0;
     bool is_dir = false;
     bool is_reg = false;
     bool is_lnk = false;
 
     template <typename Manipul>
-    void read(const std::string & root_path, const Manipul & ml) {
+    void read(const string & root_path, const Manipul & ml) {
         this->manipulator = [&] {
             ml();
         };
@@ -80,17 +82,26 @@ struct directory_reader {
         read(root_path);
     }
 
-    void read(const std::string & root_path);
+    void read(const string & root_path);
 };
 //------------------------------------------------------------------------------
 ////////////////////////////////////////////////////////////////////////////////
 //------------------------------------------------------------------------------
 class directory_indexer {
     private:
+        bool modified_only_;
     protected:
     public:
-        void reindex(sqlite::database & db, bool modified_only = true);
-        void reindex(sqlite3pp::database & db, bool modified_only = true);
+        const auto & modified_only() const {
+            return modified_only;
+        }
+
+        directory_indexer & modified_only(decltype(modified_only_) modified_only) {
+            modified_only_ = modified_only;
+            return *this;
+        }
+
+        void reindex(sqlite3pp::database & db);
 };
 //------------------------------------------------------------------------------
 namespace tests {

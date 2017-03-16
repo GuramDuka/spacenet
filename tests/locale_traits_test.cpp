@@ -34,10 +34,16 @@ void locale_traits_test()
 {
 	bool fail = false;
 
+    auto loc = std::locale();
+    std::cerr << "locale name: " << loc.name() << std::endl;
+
 	try {
-		lstring s1 = u8"А";
-		lstring s2 = u8"Б";
-		lstring s3 = u8"Я";
+        string
+#if _WIN32
+        s1 = L"А", s2 = L"Б", s3 = L"Я";
+#else
+        s1 = u8"А", s2 = u8"Б", s3 = u8"Я";
+#endif
 
 		if( s1 >= s2 || s1 >= s3 || s2 <= s1 || s2 >= s3 || s3 <= s1 || s3 <= s2 )
 			throw std::runtime_error("bad locale traits implementation");

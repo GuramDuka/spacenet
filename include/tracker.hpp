@@ -22,76 +22,39 @@
  * THE SOFTWARE.
  */
 //------------------------------------------------------------------------------
-#ifndef STD_EXT_HPP_INCLUDED
-#define STD_EXT_HPP_INCLUDED
+#ifndef TRACKER_HPP_INCLUDED
+#define TRACKER_HPP_INCLUDED
 //------------------------------------------------------------------------------
 #pragma once
 //------------------------------------------------------------------------------
-#include <algorithm>
+#include "indexer.hpp"
 //------------------------------------------------------------------------------
-namespace std {
+namespace spacenet {
 //------------------------------------------------------------------------------
-template <typename T, typename T1, typename T2, typename T3> inline
-T str_replace(const T1 & subject, const T2 & search, const T3 & replace) {
-    T s;
-    auto sb = std::cbegin(search), se = std::cend(search);
-    const auto l = se - sb;
-    auto b = std::cbegin(subject), e = std::cend(subject);
-    auto i = b;
-
-    for(;;) {
-        i = std::search(b, e, sb, se);
-
-		if( i == e )
-			break;
-
-		s.append(b, i).append(replace);
-		b = i + l;
-	}
-
-    s.append(b, i);
-
-	return s;
-}
+////////////////////////////////////////////////////////////////////////////////
 //------------------------------------------------------------------------------
-template <const std::size_t buffer_size = 4096, class size_type = std::size_t> inline
-void stream_copy_n(std::ostream & out, std::istream & in, const size_type & size) {
-	char buffer[buffer_size];
-	size_type count = size;
+class directory_tracker {
+    private:
+        bool modified_only_;
+    protected:
+    public:
+        const auto & modified_only() const {
+            return modified_only;
+        }
 
-	//in.exceptions(std::istream::failbit);
-	//out.exceptions(std::ostream::failbit);
-
-	while( count > 0 ) {
-		size_type r = count > buffer_size ? size_type(buffer_size) : count;
-
-		in.read(buffer, r);
-		//if( in.bad() || in.gcount() != r )
-		//	throw std::runtime_error("stream read error");
-
-		out.write(buffer, r);
-		//if( out.bad() )
-		//	throw std::runtime_error("stream write error");
-
-		count -= r;
-	}
-}
+        directory_indexer & modified_only(decltype(modified_only_) modified_only) {
+            modified_only_ = modified_only;
+            return *this;
+        }
+};
 //------------------------------------------------------------------------------
-template <const std::size_t buffer_size = 4096> inline
-void copy_eof(std::ostream & out, std::istream & in) {
-	char buffer[buffer_size];
-
-	for(;;) {
-		in.read(buffer, buffer_size);
-		std::size_t r = in.gcount();
-		out.write(buffer, r);
-
-		if( in.eof() )
-			break;
-	}
-}
+namespace tests {
 //------------------------------------------------------------------------------
-} // namespace std
+void tracker_test();
 //------------------------------------------------------------------------------
-#endif // STD_EXT_HPP_INCLUDED
+} // namespace tests
+//------------------------------------------------------------------------------
+} // namespace spacenet
+//------------------------------------------------------------------------------
+#endif // TRACKER_HPP_INCLUDED
 //------------------------------------------------------------------------------

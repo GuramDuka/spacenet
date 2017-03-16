@@ -12,7 +12,8 @@ SOURCES += \
     ../../../tests/locale_traits_test.cpp \
     ../../../src/sqlite3.c \
     ../../../tests/tests.cpp \
-    ../../../src/locale_traits.cpp
+    ../../../src/locale_traits.cpp \
+    ../../../src/tracker.cpp
 
 RESOURCES += qml.qrc
 
@@ -38,7 +39,8 @@ HEADERS += \
     ../../../include/sqlite/sqlite_modern_cpp/utility/uncaught_exceptions.h \
     ../../../include/sqlite/sqlite_modern_cpp/utility/variant.h \
     ../../../include/sqlite/sqlite3.h \
-    ../../../include/sqlite/sqlite3ext.h
+    ../../../include/sqlite/sqlite3ext.h \
+    ../../../include/tracker.hpp
 
 INCLUDEPATH += .
 INCLUDEPATH += ../../../include

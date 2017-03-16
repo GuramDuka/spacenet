@@ -30,6 +30,7 @@
 #include <cinttypes>
 //------------------------------------------------------------------------------
 #include "config.h"
+#include "locale_traits.hpp"
 //------------------------------------------------------------------------------
 namespace spacenet {
 //------------------------------------------------------------------------------
@@ -135,10 +136,24 @@ struct cdc512 : public cdc512_data {
         update(first, last);
         finish();
     }
-    
+
+    template <class InputIt, typename Container>
+    cdc512(Container & c, InputIt first, InputIt last) {
+        init();
+        update(first, last);
+        finish();
+        c.assign(std::cbegin(digest), std::cend(digest));
+    }
+
     void init();
     void update(const void * data, uintptr_t size);
     void finish();
+
+    template <typename Container>
+    void finish(Container & c) {
+        finish();
+        c.assign(std::cbegin(digest), std::cend(digest));
+    }
 
     template <typename InputIt>
     void update(InputIt first, InputIt last) {
@@ -146,8 +161,7 @@ struct cdc512 : public cdc512_data {
     }
 
     template <typename InputIt, typename Container>
-    void update(Container & c, InputIt first, InputIt last) {
-        init();
+    void flush(Container & c, InputIt first, InputIt last) {
         update(first, last);
         finish();
         c.assign(std::cbegin(digest), std::cend(digest));
@@ -161,7 +175,7 @@ struct cdc512 : public cdc512_data {
         return std::cend(digest);
     }
     
-    std::string to_string();
+    string to_string();
 };
 //------------------------------------------------------------------------------
 namespace tests {

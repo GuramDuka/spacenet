@@ -23,14 +23,15 @@
  */
 //------------------------------------------------------------------------------
 #include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <share.h>
 #ifndef _WIN32
 #include <dirent.h>
 #endif
-#include <sys/stat.h>
 #include <ctime>
 #include <cerrno>
 #include <cstring>
-#include <regex>
 #include <iostream>
 #include <fstream>
 #include <atomic>
@@ -49,50 +50,69 @@
 #if !defined(S_IFLNK)
 #define S_IFLNK 0
 #endif
+#if !defined(S_ILNK)
+#define S_ILNK (fmt) false
+#endif
 //------------------------------------------------------------------------------
 #include "config.h"
 #include "scope_exit.hpp"
+#include "std_ext.hpp"
 #include "locale_traits.hpp"
 #include "cdc512.hpp"
 #include "indexer.hpp"
 //------------------------------------------------------------------------------
 namespace spacenet {
 //------------------------------------------------------------------------------
-const char path_delimiter[] =
+const string::value_type path_delimiter[] =
 #if _WIN32
-    "\\"
+    CPPX_U("\\")
 #else
-    "/"
+    CPPX_U("/")
 #endif
 ;
 //------------------------------------------------------------------------------
-std::string temp_name(std::string dir, std::string pfx)
+string temp_path(bool no_back_slash)
 {
-	constexpr int MAXTRIES = 100;
+    string s;
+#if _WIN32
+    DWORD a = GetTempPathW(0, NULL);
+
+    s.resize(a - 1);
+
+    GetTempPathW(a, &s[0]);
+#else
+    s = P_tmpdir;
+#endif
+    if( no_back_slash ) {
+        if( s.back() == path_delimiter[0] )
+            s.pop_back();
+    }
+    else if( s.back() != path_delimiter[0] )
+        s.push_back(path_delimiter[0]);
+
+    return s;
+}
+//------------------------------------------------------------------------------
+string temp_name(string dir, string pfx)
+{
+    constexpr int MAXTRIES = 10000;
 	static std::atomic_int index;
-	std::string s;
 	int pid = getpid();
+    string s;
 
 	if( dir.empty() )
- #if _WIN32
-    {
-        DWORD a = GetTempPathW(0, NULL);
-        wchar_t * s = static_cast<wchar_t *>(alloca(sizeof(wchar_t) * a));
-        GetTempPathW(a, s);
-        dir = wstr2str(s);
-        if( dir.back() == path_delimiter[0] )
-            dir.pop_back();
-    }
- #else
-        dir = P_tmpdir;
- #endif
+        dir = temp_path(true);
     if( pfx.empty() )
-		pfx = "temp";
+        pfx = CPPX_U("temp");
 
-	if( access(dir.c_str(), R_OK | W_OK | X_OK) != 0 )
-		return std::string();
+#if _WIN32
+    if( _waccess(dir.c_str(), R_OK | W_OK | X_OK) != 0 )
+#else
+    if( access(dir.c_str(), R_OK | W_OK | X_OK) != 0 )
+#endif
+        throw std::runtime_error("access denied to directory: " + str2utf(dir));
 
-	size_t l = dir.size() + 1 + pfx.size() + 3 * (sizeof(int) * 3 + 2) + 1;
+    size_t l = dir.size() + 1 + pfx.size() + 4 * (sizeof(int) * 3 + 2) + 1;
 	s.resize(l);
 
 	int try_n = 0;
@@ -100,27 +120,44 @@ std::string temp_name(std::string dir, std::string pfx)
 	do {
 		struct timespec ts;
 		clock_gettime(CLOCK_REALTIME, &ts);
-		int n = ts.tv_nsec ^ (uintptr_t) &s[0] ^ (uintptr_t) &s;
-		snprintf(&s[0], l, "%s/%s-%d-%d-%x", dir.c_str(), pfx.c_str(), pid, index.fetch_add(1), n);
-	} while( !access(s.c_str(), F_OK) && try_n++ < MAXTRIES );
+        int m = int(ts.tv_sec ^ uintptr_t(&s[0]) ^ uintptr_t(&s));
+        int n = int(ts.tv_nsec ^ uintptr_t(&s[0]) ^ uintptr_t(&s));
+#if _WIN32
+        snwprintf(&s[0], l, CPPX_U("%ls\\%ls-%d-%d-%x-%x"),
+#else
+        snprintf(&s[0], l, CPPX_U("%s/%s-%d-%d-%x-%x"),
+#endif
+        dir.c_str(), pfx.c_str(), pid, index.fetch_add(1), m, n);
+    }
+#if _WIN32
+    while( !_waccess(s.c_str(), F_OK) && try_n++ < MAXTRIES );
+#else
+    while( !access(s.c_str(), F_OK) && try_n++ < MAXTRIES );
+#endif
 
 	if( try_n >= MAXTRIES )
-		return std::string();
+        throw std::range_error("function temp_name MAXTRIES reached");
 
-	s.resize(strlen(s.c_str()));
-	
+#if _WIN32
+    s.resize(wcslen(s.c_str()));
+#else
+    s.resize(strlen(s.c_str()));
+#endif
+
 	return s;
 }
 //------------------------------------------------------------------------------
-std::string get_cwd(bool no_back_slash)
+string get_cwd(bool no_back_slash)
 {
 #if _WIN32
-	DWORD a = GetCurrentDirectoryW(0, NULL) + 1;
-    wchar_t * s = static_cast<wchar_t *>(alloca(sizeof(wchar_t) * a));
-    GetCurrentDirectoryW(a, s);
-    return wstr2str(s) + (no_back_slash ? "" : "\\");
+    DWORD a = GetCurrentDirectoryW(0, NULL);
+
+    string s;
+    s.resize(a - 1);
+
+    GetCurrentDirectoryW(a, &s[0]);
 #else
-	std::string s;
+    string s;
 
     s.resize(32);
 
@@ -132,7 +169,7 @@ std::string get_cwd(bool no_back_slash)
 
 		if( errno != ERANGE ) {
 			auto err = errno;
-			throw std::runtime_error("Failed to get current work directory, " + std::to_string(err));
+            throw std::runtime_error("Failed to get current work directory, " + std::to_string(err));
 		}
 
 		s.resize(s.size() << 1);
@@ -144,66 +181,39 @@ std::string get_cwd(bool no_back_slash)
 	s = ".";
 
     if( !no_back_slash )
-		s += "/";
+        s += CPPX_U("/");
 
 	s.shrink_to_fit();
-
-    return s;
 #endif
-}
-//------------------------------------------------------------------------------
-static std::string str_replace(const std::string & subject, const std::string & search, const std::string & replace)
-{
-    std::string s;
-    const std::string::size_type l = search.length();
-    std::string::const_iterator sb = search.cbegin(), se = search.cend(),
-        b = subject.cbegin(), e = subject.cend(), i;
-
-    for( ;;) {
-        i = std::search(b, e, sb, se);
-
-        if( i == e )
-            break;
-
-        s.append(b, i).append(replace);
-        b = i + l;
+    if( no_back_slash ) {
+        if( s.back() == path_delimiter[0] )
+            s.pop_back();
     }
-
-    s.append(b, i);
+    else if( s.back() != path_delimiter[0] )
+        s.push_back(path_delimiter[0]);
 
     return s;
 }
 //------------------------------------------------------------------------------
-std::string path2rel(const std::string & path, bool no_back_slash)
+string path2rel(const string & path, bool no_back_slash)
 {
-    std::string file_path;
+    string file_path = path;
+
+    if( !file_path.empty() ) {
 #if _WIN32
-    if( !file_path.empty() ) {
-        file_path = str_replace(file_path, "/", "\\");
-        file_path = path.find('\\') == 0 ? path.substr(1) : path;
-
-		if( no_back_slash ) {
-			if( file_path.back() == '\\' )
-				file_path.pop_back();
-		}
-		else if( file_path.back() != '\\' ){
-				file_path.push_back('\\');
-		}
-	}
+        file_path = std::str_replace<string>(file_path, CPPX_U("/"), CPPX_U("\\"));
 #else
-    if( !file_path.empty() ) {
-        file_path = str_replace(file_path, "\\", "/");
-        file_path = path.find('/') == 0 ? path.substr(1) : path;
-
-		if( no_back_slash ) {
-			if( file_path.back() == '/' )
-				file_path.pop_back();
-		}
-		else if( file_path.back() != '/' ){
-			file_path.push_back('/');
-		}
-	}
+        file_path = str_replace(file_path, CPPX_U("\\"), CPPX_U("/"));
 #endif
+        //file_path = path.find(path_delimiter[0]) == 0 ? path.substr(1) : path;
+
+        if( no_back_slash ) {
+            if( file_path.back() == path_delimiter[0] )
+                file_path.pop_back();
+        }
+        else if( file_path.back() != path_delimiter[0] )
+            file_path.push_back(path_delimiter[0]);
+    }
 	return file_path;
 }
 //------------------------------------------------------------------------------
@@ -216,13 +226,13 @@ struct file_stat :
 	public stat
 #endif
 {
-	file_stat(const std::string & file_name) noexcept {
+    file_stat(const string & file_name) noexcept {
 		stat(file_name);
 	}
 
-	int stat(const std::string & file_name) noexcept {
+    int stat(const string & file_name) noexcept {
 #if _WIN32
-        return _wstat64(str2wstr(file_name).c_str(), this);
+        return _wstat64(file_name.c_str(), this);
 #else
 		return ::stat(file_name.c_str(), this);
 #endif
@@ -231,10 +241,10 @@ struct file_stat :
 //------------------------------------------------------------------------------
 ////////////////////////////////////////////////////////////////////////////////
 //------------------------------------------------------------------------------
-void directory_reader::read(const std::string & root_path)
+void directory_reader::read(const string & root_path)
 {
-	std::regex mask_regex(mask.empty() ? ".*" : mask);
-	std::regex exclude_regex(exclude);
+    regex mask_regex(mask.empty() ? CPPX_U(".*") : mask);
+    regex exclude_regex(exclude);
 
 	path = root_path;
 
@@ -247,7 +257,7 @@ void directory_reader::read(const std::string & root_path)
 #else
 		DIR * handle;
 #endif
-		std::string path;
+        string path;
 	};
 
 	std::stack<stack_entry> stack;
@@ -269,7 +279,16 @@ void directory_reader::read(const std::string & root_path)
 #endif
 
 #if _WIN32
-	HANDLE handle = INVALID_HANDLE_VALUE;
+    auto unpack_FILETIME = [] (FILETIME & ft, uint32_t & nsec) {
+        ULARGE_INTEGER q;
+        q.LowPart = ft.dwLowDateTime;
+        q.HighPart = ft.dwHighDateTime;
+        nsec = uint32_t((q.QuadPart % 10000000) * 100); // FILETIME is in units of 100 nsec.
+        constexpr const uint64_t secs_between_epochs = 11644473600; // Seconds between 1.1.1601 and 1.1.1970 */
+        return time_t((q.QuadPart / 10000000) - secs_between_epochs);
+    };
+
+    HANDLE handle = INVALID_HANDLE_VALUE;
 #else
 	DIR * handle = nullptr;
 #endif
@@ -289,8 +308,7 @@ void directory_reader::read(const std::string & root_path)
 
 #if _WIN32
 		if( handle == INVALID_HANDLE_VALUE ) {
-            auto fffs = str2wstr(path + "\\*");
-            handle = FindFirstFileW(fffs.c_str(), &fdw);
+            handle = FindFirstFileW((path + L"\\*").c_str(), &fdw);
 #else
 		if( handle == nullptr ) {
 			handle = ::opendir(path.c_str());
@@ -304,7 +322,7 @@ void directory_reader::read(const std::string & root_path)
 			path = stack.top().path;
 			stack.pop();
 #if _WIN32
-			lstrcpyW(fdw.cFileName, L"");
+            lstrcpyW(fdw.cFileName, L"");
 #endif
 		}
 
@@ -314,7 +332,8 @@ void directory_reader::read(const std::string & root_path)
 			err = GetLastError();
 			if( err == ERROR_PATH_NOT_FOUND )
 				return;
-			throw std::runtime_error("Failed to open directory: " + path + ", " + std::to_string(err));
+            throw std::runtime_error(
+                str2utf(L"Failed to open directory: " + path + L", " + std::to_wstring(err)));
 
 #else
 		if( handle == nullptr ) {
@@ -346,7 +365,7 @@ void directory_reader::read(const std::string & root_path)
 			if( lstrcmpW(fdw.cFileName, L"..") == 0 && !list_dotdot )
 				continue;
 
-            name = wstr2str(fdw.cFileName);
+            name = fdw.cFileName;
 #elif HAVE_READDIR_R
 		for(;;) {
 			if( readdir_r(handle, ent, &result) != 0 ) {
@@ -397,22 +416,9 @@ void directory_reader::read(const std::string & root_path)
             is_dir = (fdw.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
             is_lnk = false;
 
-            ULARGE_INTEGER q;
-
-            q.LowPart = fdw.ftLastAccessTime.dwLowDateTime;
-            q.HighPart = fdw.ftLastAccessTime.dwHighDateTime;
-            atime = q.QuadPart / 10000000;
-            atime_nsec = (q.QuadPart % 10000000) * 100;
-
-            q.LowPart = fdw.ftCreationTime.dwLowDateTime;
-            q.HighPart = fdw.ftCreationTime.dwHighDateTime;
-            ctime = q.QuadPart / 10000000;
-            ctime_nsec = (q.QuadPart % 10000000) * 100;
-
-            q.LowPart = fdw.ftLastWriteTime.dwLowDateTime;
-            q.HighPart = fdw.ftLastWriteTime.dwHighDateTime;
-            mtime = q.QuadPart / 10000000;
-            ctime_nsec = (q.QuadPart % 10000000) * 100;
+            atime = unpack_FILETIME(fdw.ftLastAccessTime, atime_ns);
+            ctime = unpack_FILETIME(fdw.ftCreationTime, ctime_ns);
+            mtime = unpack_FILETIME(fdw.ftLastWriteTime, mtime_ns);
 #else
             file_stat fs(path_name);
 
@@ -425,18 +431,18 @@ void directory_reader::read(const std::string & root_path)
             ctime = fs.st_ctime;
             mtime = fs.st_mtime;
 #if __USE_XOPEN2K8
-			atime_nsec = fs.st_atim.tv_nsec;
-			ctime_nsec = fs.st_ctim.tv_nsec;
-			mtime_nsec = fs.st_mtim.tv_nsec;
+            atime_ns = fs.st_atim.tv_nsec;
+            ctime_ns = fs.st_ctim.tv_nsec;
+            mtime_ns = fs.st_mtim.tv_nsec;
 #else
-			atime_nsec = fs.st_atimensec;
-			ctime_nsec = fs.st_ctimensec;
-			mtime_nsec = fs.st_mtimensec;
+            atime_ns = fs.st_atimensec;
+            ctime_ns = fs.st_ctimensec;
+            mtime_ns = fs.st_mtimensec;
 #endif
 			fsize = fs.st_size;
-			is_reg = (fs.st_mode & S_IFREG) != 0;
-			is_dir = (fs.st_mode & S_IFDIR) != 0;
-			is_lnk = (fs.st_mode & S_IFLNK) != 0;
+            is_reg = S_ISREG(fs.st_mode);
+            is_dir = S_ISDIR(fs.st_mode);
+            is_lnk = S_ISLNK(fs.st_mode);
 #endif
 #if _WIN32
 			if( (fdw.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0 ) {
@@ -491,7 +497,8 @@ void directory_reader::read(const std::string & root_path)
 
 		if( handle != INVALID_HANDLE_VALUE && GetLastError() != ERROR_NO_MORE_FILES ) {
 			err = GetLastError();
-			throw std::runtime_error("Failed to read directory: " + path + ", " + std::to_string(err));
+            throw std::runtime_error(
+                str2utf(L"Failed to read directory: " + path + L", " + std::to_wstring(err)));
 		}
 #endif
 	}
@@ -499,497 +506,381 @@ void directory_reader::read(const std::string & root_path)
 //------------------------------------------------------------------------------
 ////////////////////////////////////////////////////////////////////////////////
 //------------------------------------------------------------------------------
-void directory_indexer::reindex(sqlite::database & db, bool modified_only)
+void directory_indexer::reindex(sqlite3pp::database & db)
 {
-	constexpr size_t BLOCK_SIZE = 4096;
+    constexpr const size_t BLOCK_SIZE = 4096;
 
-	try {
-	for( const auto p : {
-		R"EOS(
-		CREATE TABLE IF NOT EXISTS entries (
-			id				BLOB PRIMARY KEY ON CONFLICT ABORT,
-			parent_id		BLOB,
-			name			TEXT,
-			is_dir			INTEGER,
-			mtime			INTEGER,	/* INTEGER as Unix Time, the number of seconds since 1970-01-01 00:00:00 UTC. */
-			mtime_ns		INTEGER,	/* nanoseconds, if supported else zero or NULL */
-			digest			BLOB
-		) WITHOUT ROWID)EOS",
-		"CREATE UNIQUE INDEX IF NOT EXISTS i1 ON entries (parent_id, id)",
-		"CREATE UNIQUE INDEX IF NOT EXISTS i2 ON entries (parent_id, name)",
-		R"EOS(
-		CREATE TABLE IF NOT EXISTS blocks_digests (
-			entry_id		BLOB,
-			block_no		INTEGER,
-			digest			BLOB
-        )/* WITHOUT ROWID*/)EOS",
-		"CREATE INDEX IF NOT EXISTS i3 ON blocks_digests (entry_id)",
-		"CREATE UNIQUE INDEX IF NOT EXISTS i4 ON blocks_digests (entry_id, block_no)"
-		} )
-		db << p;
+    db.execute_all(R"EOS(
+        CREATE TABLE IF NOT EXISTS entries (
+            is_alive		INTEGER NOT NULL,   /* boolean */
+            /*id			BLOB PRIMARY KEY ON CONFLICT ABORT,*/
+            parent_id		INTEGER NOT NULL,   /* link on entries rowid */
+            name			TEXT NOT NULL,      /* file name*/
+            is_dir			INTEGER,            /* boolean */
+            mtime			INTEGER,            /* INTEGER as Unix Time, the number of seconds since 1970-01-01 00:00:00 UTC. */
+            mtime_ns		INTEGER,            /* nanoseconds, if supported else zero or NULL */
+            file_size		INTEGER,            /* file size in bytes */
+            block_size		INTEGER,            /* file block size in bytes */
+            digest			BLOB,               /* file checksum */
+            UNIQUE(parent_id, name) ON CONFLICT ABORT
+        ) /*WITHOUT ROWID*/;
+        CREATE UNIQUE INDEX IF NOT EXISTS i1 ON entries (parent_id, name);
+        CREATE INDEX IF NOT EXISTS i2 ON entries (is_alive);
 
-	// get a prepared parsed and ready statment
-	auto st_sel_id = db << R"EOS(
-		SELECT
-			id
-		FROM
-			entries
-		WHERE
-			parent_id = :parent_id
-			AND name = :name
-	)EOS";
-	auto st_ins = db << R"EOS(
-		INSERT INTO entries (
-			id, parent_id, name, is_dir, mtime, mtime_ns, digest
-		) VALUES (:id, :parent_id, :name, :is_dir, :mtime, :mtime_ns, :digest)
-	)EOS";
-	auto st_upd = db << R"EOS(
-		UPDATE entries SET
-			parent_id = :parent_id, name = :name,
-			is_dir = :is_dir, mtime = :mtime, mtime_ns = :mtime_ns,
-			digest = :digest
-		WHERE
-			id = :id
-	)EOS";
-	auto st_blk_ins = db << R"EOS(
-		INSERT INTO blocks_digests (
-			entry_id, block_no, digest
-		) VALUES (:entry_id, :block_no, :digest)
-	)EOS";
-	auto st_blk_upd = db << R"EOS(
-		UPDATE blocks_digests SET
-			block_no = :block_no, digest = :digest
-		WHERE
-			entry_id = :entry_id
-	)EOS";
+        CREATE TABLE IF NOT EXISTS blocks_digests (
+            entry_id		INTEGER NOT NULL,   /* link on entries rowid */
+            block_no		INTEGER NOT NULL,   /* file block number starting from one */
+            digest			BLOB,               /* file block checksum */
+            UNIQUE(entry_id, block_no) ON CONFLICT ABORT
+        ) /*WITHOUT ROWID*/;
+        CREATE UNIQUE INDEX IF NOT EXISTS i3 ON blocks_digests (entry_id, block_no);
+    )EOS");
 
-	modified_only = modified_only;
+    sqlite3pp::query st_sel(db, R"EOS(
+        SELECT
+            rowid,
+            mtime,
+            mtime_ns
+        FROM
+            entries
+        WHERE
+            parent_id = :parent_id
+            AND name = :name
+    )EOS");
 
-	typedef std::vector<char> blob;
-	
-	std::unordered_map<std::string, blob> parents;
-	
-    directory_reader dr;
-
-    dr.recursive = dr.list_directories = true;
-	dr.manipulator = [&] {
-		cdc512 ctx;
-
-		blob id, parent_id, digest, block_digest;
-		{
-			auto pit = parents.find(dr.path);
-
-			if( pit == parents.cend() ) {
-
-				if( dr.level > 1 ) {
-					ctx.init();
-					ctx.update(dr.path.cbegin(), dr.path.cend());
-					ctx.finish();
-
-					id.assign(std::begin(ctx.digest), std::end(ctx.digest));
-					
-					st_sel_id << std::make_pair("id", id);
-					st_sel_id << std::make_pair("name", dr.name);
-				}
-				else {
-					st_sel_id << std::make_pair("id", nullptr);
-					st_sel_id << std::make_pair("name", dr.path_name);
-				}
-				
-				st_sel_id >> [&] (const blob & a) {
-					parent_id = a;
-				};
-
-				if( parent_id.empty() )
-					parent_id = std::move(id);
-				
-				parents.emplace(std::make_pair(dr.path, parent_id));
-			}
-			else {
-				parent_id = pit->second;
-			}
-
-			ctx.init();
-			ctx.update(dr.path_name.cbegin(), dr.path_name.cend());
-			ctx.finish();
-
-			id.assign(std::begin(ctx.digest), std::end(ctx.digest));
-		}
-		
-		std::ifstream in(dr.path_name, std::ios::binary);
-		in.exceptions(std::ifstream::failbit | std::ifstream::badbit);
-		
-		ctx.init();
-
-		uint64_t blk_no = 0;
-		
-		auto update_block_digest = [&] {
-			// first if needed bind values to it
-			st_blk_ins
-				<< std::make_pair("id", id)
-				<< std::make_pair("blk_no", blk_no)
-				<< std::make_pair("block_digest", block_digest)
-			;
-
-			try {
-				// there is a convinience operator to execute and reset in one go
-				db << "BEGIN /* DEFERRED, IMMEDIATE, EXCLUSIVE */ TRANSACTION";
-				st_blk_ins.execute();
-				db << "COMMIT TRANSACTION";
-			}
-			// catch specific exceptions as well
-			catch( const sqlite::exceptions::constraint & e ) {
-			}
-			// if you are trying to catch all sqlite related exceptions
-			// make sure to catch them by reference
-			catch( sqlite::sqlite_exception & e) {
-				std::cerr  << e.get_code() << ": " << e.what() << " during "
-					  << e.get_sql() << std::endl;
-			}
-		};
-		
-		while( !in.eof() ) {
-			blk_no++;
-
-			uint8_t buf[BLOCK_SIZE];
-			in.read(reinterpret_cast<char *>(buf), BLOCK_SIZE);
-			auto r = in.gcount();
-			std::memset(buf + r, 0, BLOCK_SIZE - r);
-
-			cdc512 blk_ctx;
-
-			blk_ctx.init();
-			blk_ctx.update(std::cbegin(buf), std::cend(buf));
-			blk_ctx.finish();
-			
-			block_digest.assign(std::begin(blk_ctx.digest), std::end(blk_ctx.digest));
-			
-			update_block_digest();
-
-			ctx.update(std::cbegin(buf), std::cend(buf));
-		}
-		//try {
-		//}
-		//catch (std::ios_base::failure &fail) {
-			// handle exception here
-		//}
-
-		ctx.finish();
-
-		digest.assign(std::begin(ctx.digest), std::end(ctx.digest));
-		
-		// first if needed bind values to it
-		st_ins
-			<< std::make_pair("id", id)
-			<< std::make_pair("parent_id", parent_id)
-			<< std::make_pair("name", dr.name)
-			<< std::make_pair("is_dir", dr.is_dir)
-			<< std::make_pair("mtime", dr.mtime)
-			<< std::make_pair("mtime_nsec", dr.mtime_nsec)
-			<< std::make_pair("digest", digest)
-		;
-
-		try {
-			db << "BEGIN /* DEFERRED, IMMEDIATE, EXCLUSIVE */ TRANSACTION";
-			// there is a convinience operator to execute and reset in one go
-			st_ins++;
-			db << "COMMIT TRANSACTION";
-		}
-		// catch specific exceptions as well
-		catch( const sqlite::exceptions::constraint & e ) {
-		}
-		// if you are trying to catch all sqlite related exceptions
-		// make sure to catch them by reference
-		catch( sqlite::sqlite_exception & e) {
-			std::cerr  << e.get_code() << ": " << e.what() << " during "
-				  << e.get_sql() << std::endl;
-		}
-	};
-	
-    dr.read(get_cwd());
-		
-	// delete lost records
-	db << R"EOS(
-		DELETE FROM blocks_digests
-		WHERE
-			entry_id IN (
-				SELECT
-					a.entry_id
-				FROM
-					blocks_digests AS a
-					LEFT JOIN entries AS b
-					ON a.entry_id = b.id
-				WHERE
-					b.id IS NULL
-			)
-	)EOS";
-	} catch( sqlite::sqlite_exception & e) {
-		std::cerr  << e.get_code() << ": " << e.what() << " during "
-			  << e.get_sql() << std::endl;
-	}
-}
-//------------------------------------------------------------------------------
-void directory_indexer::reindex(sqlite3pp::database & db, bool modified_only)
-{
-	constexpr size_t BLOCK_SIZE = 4096;
-
-	{
-		sqlite3pp::command ddl_sql(db, R"EOS(
-		CREATE TABLE IF NOT EXISTS entries (
-			id				BLOB PRIMARY KEY ON CONFLICT ABORT,
-			parent_id		BLOB,
-			name			TEXT,
-			is_dir			INTEGER,
-			mtime			INTEGER,	/* INTEGER as Unix Time, the number of seconds since 1970-01-01 00:00:00 UTC. */
-			mtime_ns		INTEGER,	/* nanoseconds, if supported else zero or NULL */
-			digest			BLOB
-		) WITHOUT ROWID;
-		CREATE UNIQUE INDEX IF NOT EXISTS i1 ON entries (parent_id, id);
-		CREATE UNIQUE INDEX IF NOT EXISTS i2 ON entries (parent_id, name);
-
-		CREATE TABLE IF NOT EXISTS blocks_digests (
-			entry_id		BLOB,
-			block_no		INTEGER,
-			digest			BLOB
-		) /*WITHOUT ROWID*/;
-		CREATE INDEX IF NOT EXISTS i3 ON blocks_digests (entry_id);
-		CREATE UNIQUE INDEX IF NOT EXISTS i4 ON blocks_digests (entry_id, block_no);
-		)EOS");
-
-		ddl_sql.execute_all();
-	}
-
-	// get a prepared parsed and ready statment
-	sqlite3pp::query st_sel_id(db, R"EOS(
-		SELECT
-			id
-		FROM
-			entries
-		WHERE
-			parent_id = :parent_id
-			AND name = :name
-	)EOS");
-
-	sqlite3pp::query st_sel_pid(db, R"EOS(
-		SELECT
-			parent_id
-		FROM
-			entries
-		WHERE
-			id = :id
-	)EOS");
-	
 	sqlite3pp::command st_ins(db, R"EOS(
-		INSERT INTO entries (
-			id, parent_id, name, is_dir, mtime, mtime_ns, digest
-		) VALUES (:id, :parent_id, :name, :is_dir, :mtime, :mtime_ns, :digest)
+        INSERT INTO entries (
+            is_alive, parent_id, name, is_dir, mtime, mtime_ns, file_size, block_size, digest
+        ) VALUES (1, :parent_id, :name, :is_dir, :mtime, :mtime_ns, :file_size, :block_size, NULL)
 	)EOS");
 	
 	sqlite3pp::command st_upd(db, R"EOS(
-		UPDATE entries SET
-			parent_id = :parent_id, name = :name,
-			is_dir = :is_dir, mtime = :mtime, mtime_ns = :mtime_ns,
-			digest = :digest
+        UPDATE entries SET
+            is_alive = 1,
+            parent_id = :parent_id,
+            name = :name,
+            is_dir = :is_dir,
+            mtime = :mtime,
+            mtime_ns = :mtime_ns,
+            file_size = :file_size,
+            block_size = :block_size,
+            digest = NULL
 		WHERE
-			id = :id
+            parent_id = :parent_id
+            AND name = :name
 	)EOS");
-	
+
+    sqlite3pp::command st_upd_touch(db, R"EOS(
+        UPDATE entries SET
+            is_alive = 1
+        WHERE
+            rowid = :id
+    )EOS");
+
+    sqlite3pp::command st_upd_digest(db, R"EOS(
+        UPDATE entries SET
+            is_alive = 1,
+            digest = :digest
+        WHERE
+            rowid = :id
+    )EOS");
+
 	sqlite3pp::command st_blk_ins(db, R"EOS(
-		INSERT INTO blocks_digests (
-			entry_id, block_no, digest
-		) VALUES (:entry_id, :block_no, :digest)
+        INSERT INTO blocks_digests (
+            entry_id, block_no, digest
+        ) VALUES (
+            :entry_id, :block_no, :digest)
 	)EOS");
-	
+
 	sqlite3pp::command st_blk_upd(db, R"EOS(
 		UPDATE blocks_digests SET
-			block_no = :block_no, digest = :digest
+            digest = :digest
 		WHERE
-			entry_id = :entry_id
+            entry_id = :entry_id
+            AND block_no = :block_no
 	)EOS");
 
-	modified_only = modified_only;
+    sqlite3pp::command st_blk_del(db, R"EOS(
+        DELETE FROM blocks_digests
+        WHERE
+            entry_id = :entry_id
+            AND block_no > :block_no
+    )EOS");
 
-	typedef std::vector<uint8_t> blob;
-	
-	std::unordered_map<std::string, blob> parents;
-	blob id, parent_id, digest, block_digest;
+    std::unordered_map<std::string, uint64_t> parents;
 
-	uint64_t blk_no;
+    typedef std::vector<uint8_t> blob;
 
-	auto update_block_digest = [&] {
-		// first if needed bind values to it
-		st_blk_ins.bind(":id", id, sqlite3pp::nocopy);
-		st_blk_ins.bind(":blk_no", blk_no);
-		st_blk_ins.bind(":block_digest", block_digest, sqlite3pp::nocopy);
+    auto update_block_digest = [&] (
+        uint64_t entry_id,
+        uint64_t blk_no,
+        const blob & block_digest)
+    {
+        auto bind = [&] (auto & st) {
+            st.bind("entry_id", entry_id);
+            st.bind("block_no", blk_no);
+            st.bind("digest", block_digest, sqlite3pp::nocopy);
+        };
 
-		try {
-			sqlite3pp::transaction xct(db);
-			st_blk_ins.execute();
-		}
-		catch( const sqlite3pp::database_error & e ) {
-			std::cerr << db.error_code() << ", " << db.error_msg() << std::endl;
-		}
-	};
+        bind(st_blk_ins);
+
+        auto exceptions_safe = db.exceptions();
+        at_scope_exit( db.exceptions(exceptions_safe) );
+        db.exceptions(false);
+
+        if( st_blk_ins.execute() == SQLITE_CONSTRAINT_UNIQUE ) {
+            db.exceptions(true);
+            bind(st_blk_upd);
+            st_blk_upd.execute();
+        }
+    };
+
+	auto update_entry = [&] (
+        uint64_t parent_id,
+		const std::string & name,
+		bool is_dir,
+        uint64_t mtime,
+        uint32_t mtime_ns,
+        uint64_t file_size,
+        uint64_t block_size,
+        uint64_t * p_mtim = nullptr)
+	{
+		auto bind = [&] (auto & st) {
+            st.bind("parent_id", parent_id);
+            st.bind("name", name, sqlite3pp::nocopy);
+
+            if( mtime == 0 )
+                st.bind("mtime", nullptr);
+            else
+                st.bind("mtime", mtime);
+
+            if( mtime_ns == 0 )
+                st.bind("mtime_ns", nullptr);
+            else
+                st.bind("mtime_ns", mtime_ns);
+
+			if( is_dir )
+                st.bind("is_dir", is_dir);
+			else
+                st.bind("is_dir", nullptr);
+
+            if( file_size == 0 )
+                st.bind("file_size", nullptr);
+            else
+                st.bind("file_size", file_size);
+
+            if( block_size == 0 )
+                st.bind("block_size", nullptr);
+            else
+                st.bind("block_size", block_size);
+        };
+		
+        auto exceptions_safe = db.exceptions();
+        at_scope_exit( db.exceptions(exceptions_safe) );
+
+        st_sel.bind("parent_id", parent_id);
+        st_sel.bind("name", name, sqlite3pp::nocopy);
+
+        uint64_t id = 0, mtim = 0, fmtim = mtime * 1000000000 + mtime_ns;
+
+        auto get_id_mtim = [&] {
+            auto i = st_sel.begin();
+
+            if( i ) {
+                id = i->get<uint64_t>("rowid");
+                mtim = i->get<uint64_t>("mtime") * 1000000000
+                    + i->get<uint32_t>("mtime_ns");
+            }
+        };
+
+        if( modified_only_ )
+            get_id_mtim();
+
+        // then mtime not changed, just touch entry
+        if( modified_only_ && id != 0 && (mtim == fmtim || fmtim == 0) ) {
+            st_upd_touch.bind("id", id);
+            st_upd_touch.execute();
+        }
+        else {
+            db.exceptions(false);
+            bind(st_ins);
+
+            if( st_ins.execute() == SQLITE_CONSTRAINT_UNIQUE ) {
+                db.exceptions(true);
+                bind(st_upd);
+                st_upd.execute();
+            }
+        }
+
+        if( id == 0 )
+            get_id_mtim();
+
+        if( p_mtim != nullptr )
+            *p_mtim = mtim;
+
+        return id;
+    };
+
+    auto update_blocks = [&] (
+        cdc512 & file_ctx,
+        const string & path_name,
+        const std::string & utf_path_name,
+        uint64_t entry_id)
+    {
+        int in = -1;
+
+        at_scope_exit(
+            if( in != -1 )
+                _close(in);
+        );
+
+        errno_t err =
+#if _WIN32
+        _wsopen_s
+#else
+        _sopen_s
+#endif
+        (&in, path_name.c_str(), _O_RDONLY, _SH_DENYNO, _S_IREAD | _S_IWRITE);
+        //std::wifstream in(dr.path_name, std::ios::binary);
+        //in.exceptions(std::ios::failbit | std::ios::badbit);
+        if( err != 0 )
+            throw std::runtime_error(
+                "Failed open file: " + utf_path_name + ", " + std::to_string(err));
+
+        uint64_t blk_no = 0;
+
+        for(;;) {//while( !in.eof() ) {
+            blk_no++;
+
+            uint8_t buf[BLOCK_SIZE];
+            //in.read(reinterpret_cast<char *>(buf), BLOCK_SIZE);
+            //auto r = in.gcount();
+
+            auto r = _read(in, buf, BLOCK_SIZE);
+
+            if( r == -1 ) {
+                err = errno;
+                throw std::runtime_error(
+                    "Failed read file: " + utf_path_name + ", " + std::to_string(err));
+            }
+
+            if( r == 0 )
+                break;
+
+            if( size_t(r) < BLOCK_SIZE )
+                std::memset(buf + r, 0, BLOCK_SIZE - r);
+
+            blob block_digest;
+            cdc512 blk_ctx(block_digest, std::cbegin(buf), std::cend(buf));
+            update_block_digest(entry_id, blk_no, block_digest);
+
+            st_blk_del.bind("entry_id", entry_id);
+            st_blk_del.bind("block_no", blk_no);
+            st_blk_del.execute();
+
+            file_ctx.update(std::cbegin(buf), std::cend(buf));
+        }
+    };
 
     directory_reader dr;
     dr.recursive = dr.list_directories = true;
-	
-	auto update_entry = [&] (
-		const std::string & path_name,
-		const std::string & name,
-		bool is_dir,
-		uint64_t mtime = 0,
-		uint32_t mtime_nsec = 0)
-	{
-		auto bind = [&] (auto & st) {
-			// first if needed bind values to it
-			st.bind(":id", id, sqlite3pp::nocopy);
-			st.bind(":name", name, sqlite3pp::nocopy);
-			st.bind(":mtime", mtime);
-			st.bind(":mtime_nsec", mtime_nsec);
+    dr.manipulator = [&] {
+        // skip inaccessible files or directories
+#if _WIN32
+        if( _waccess(dr.path_name.c_str(), R_OK | (dr.is_dir ? X_OK : 0)) != 0 )
+#else
+        if( access(dr.path_name.c_str(), R_OK | (dr.is_dir ? X_OK : 0)) != 0 )
+#endif
+            return;
 
-			if( parent_id.empty() )
-				st.bind(":parent_id", nullptr);
-			else
-				st.bind(":parent_id", parent_id, sqlite3pp::nocopy);
+        auto utf_name = str2utf(dr.name);
+        auto utf_path = str2utf(dr.path);
+        auto utf_path_name = str2utf(dr.path_name);
 
-			if( digest.empty() )
-				st.bind(":digest", nullptr);
-			else
-				st.bind(":digest", digest, sqlite3pp::nocopy);
-
-			if( is_dir )
-				st.bind(":is_dir", is_dir);
-			else
-				st.bind(":is_dir", nullptr);
-		};
-		
-		for(;;) {
-		
-			bind(st_ins);
-
-			try {
-				sqlite3pp::transaction xct(db);
-				// there is a convinience operator to execute and reset in one go
-				st_ins.execute();
-
-				if( dr.is_dir )
-					parents.emplace(std::make_pair(path_name, id));
-				break;
-			}
-			catch( const sqlite3pp::database_error & e) {
-				std::cerr << e.err_code() << ", " << e.what() << std::endl;
-				if( e.ex_err_code() != SQLITE_CONSTRAINT_PRIMARYKEY )
-					throw e;
-
-				st_sel_pid.bind(":id", id, sqlite3pp::nocopy);
-
-				auto i = st_sel_pid.begin();
-
-				if( (i->column_isnull("parent_id") && parent_id.empty())
-					|| i->get<blob>("parent_id") == parent_id ) {
-					bind(st_upd);
-					st_upd.execute();
-				}
-				else {
-					cdc512 ctx(id.cbegin(), id.cend());
-					id.assign(std::cbegin(ctx.digest), std::cend(ctx.digest));
-				}
-			}
-		}
-	};
-	
-	dr.manipulator = [&] {
-		cdc512 ctx(leave_uninitialized);
-		{
-			auto pit = parents.find(dr.path);
+        uint64_t parent_id = [&] {
+            auto pit = parents.find(utf_path);
 
 			if( pit == parents.cend() ) {
-
-				if( dr.level > 1 ) {
-					//ctx.update(id, dr.path.cbegin(), dr.path.cend());
-					//st_sel_id.bind(":id", id, sqlite3pp::nocopy);
-					//st_sel_id.bind(":name", dr.name, sqlite3pp::nocopy);
+                if( dr.level > 1 )
 					throw std::runtime_error("Undefined behavior");
-				}
-				else {
-					st_sel_id.bind(":id", nullptr);
-					st_sel_id.bind(":name", dr.path, sqlite3pp::nocopy);
-				}
-				
-				for( auto i : st_sel_id )
-					i.get<blob>(parent_id, "id");
 
-				if( st_sel_id.empty() ) {
-					ctx.update(id, dr.path.cbegin(), dr.path.cend());
-					parent_id.clear();
-					digest.clear();
-					
-					update_entry(dr.path, dr.path, true);
-					
-					parent_id = std::move(id);
-				}
-				else {
-					parents.emplace(std::make_pair(dr.path, parent_id));
-				}
-			}
-			else {
-				parent_id = pit->second;
-			}
+                auto id = update_entry(0, utf_path, true, 0, 0, 0, 0);
+                parents.emplace(std::make_pair(utf_path, id));
+                return id;
+            }
 
-			ctx.update(id, dr.path_name.cbegin(), dr.path_name.cend());
-		}
-		
-		std::ifstream in(dr.path_name, std::ios::binary);
-		in.exceptions(std::ifstream::failbit | std::ifstream::badbit);
-		
-		ctx.init();
-		blk_no = 0;
+            return pit->second;
+        }();
 
-		while( !in.eof() ) {
-			blk_no++;
+        uint64_t mtim, entry_id = update_entry(
+            parent_id,
+            utf_name,
+            dr.is_dir,
+            dr.mtime,
+            dr.mtime_ns,
+            dr.fsize,
+            BLOCK_SIZE,
+            &mtim);
 
-			uint8_t buf[BLOCK_SIZE];
-			in.read(reinterpret_cast<char *>(buf), BLOCK_SIZE);
-			auto r = in.gcount();
-			std::memset(buf + r, 0, BLOCK_SIZE - r);
+        if( dr.is_dir )
+            parents.emplace(std::make_pair(utf_path_name, entry_id));
 
-			cdc512 blk_ctx(std::cbegin(buf), std::cend(buf));
-			block_digest.assign(blk_ctx.cbegin(), blk_ctx.cend());
-			
-			update_block_digest();
+        // if file modified then calculate digests
+        if( dr.is_reg && mtim != dr.mtime * 1000000000 + dr.mtime_ns ) {
+            cdc512 ctx;
+            update_blocks(ctx, dr.path_name, utf_path_name, entry_id);
 
-			ctx.update(std::cbegin(buf), std::cend(buf));
-		}
-		//try {
-		//}
-		//catch (std::ios_base::failure &fail) {
-			// handle exception here
-		//}
+            blob digest;
+            ctx.finish(digest);
 
-		ctx.finish();
-		digest.assign(std::cbegin(ctx.digest), std::cend(ctx.digest));
-
-		update_entry(dr.path_name, dr.name, dr.is_dir, dr.mtime, dr.mtime_nsec);
+            st_upd_digest.bind("id", entry_id);
+            st_upd_digest.bind("digest", digest, sqlite3pp::nocopy);
+            st_upd_digest.execute();
+        }
 	};
 	
-    dr.read(get_cwd());
+    dr.read(CPPX_U("C:\\hiew"));//get_cwd());
 		
-	// delete lost records
-	db.execute(R"EOS(
-		DELETE FROM blocks_digests
-		WHERE
-			entry_id IN (
-				SELECT
-					a.entry_id
-				FROM
-					blocks_digests AS a
-					LEFT JOIN entries AS b
-					ON a.entry_id = b.id
-				WHERE
-					b.id IS NULL
-			)
-	)EOS");
+    auto cleanup_entries = [&db] {
+        //sqlite3pp::query st_sel(db, R"EOS(
+        //    SELECT
+        //        rowid
+        //    FROM
+        //        entries
+        //    WHERE
+        //        is_alive = 0
+        //)EOS");
+
+        //sqlite3pp::command st_del(db, R"EOS(
+        //    DELETE FROM blocks_digests
+        //    WHERE
+        //        entry_id = :entry_id
+        //)EOS");
+
+        sqlite3pp::transaction xct(db, true);
+
+        //for( auto i = st_sel.begin(); i != st_sel.end(); i++ ) {
+        //    st_del.bind(0, i->get<uint64_t>(0));
+        //    st_del.execute();
+        //}
+
+        db.execute_all(R"EOS(
+            DELETE FROM blocks_digests WHERE entry_id IN (
+                SELECT
+                    rowid
+                FROM
+                    entries
+                WHERE
+                    is_alive = 0
+            );
+            DELETE FROM entries WHERE is_alive = 0;
+            UPDATE entries SET is_alive = 0;
+        )EOS");
+
+        xct.commit();
+    };
+
+    cleanup_entries();
 }
 //------------------------------------------------------------------------------
 } // namespace spacenet

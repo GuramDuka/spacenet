@@ -26,7 +26,6 @@
 #include <vector>
 #include <algorithm>
 //------------------------------------------------------------------------------
-#include "locale_traits.hpp"
 #include "indexer.hpp"
 //------------------------------------------------------------------------------
 namespace spacenet {
@@ -41,13 +40,13 @@ void indexer_test()
 		directory_reader dr;
 
 		struct entry {
-			std::string name_;
+            string name_;
 			decltype(dr.mtime) mtime_;
 			decltype(dr.fsize) size_;
 			decltype(dr.is_reg) is_reg_;
 
 			entry() {}
-			entry(std::string name, decltype(mtime_) mtime, decltype(size_) fsize, decltype(dr.is_reg) is_reg) :
+            entry(string name, decltype(mtime_) mtime, decltype(size_) fsize, decltype(dr.is_reg) is_reg) :
 				name_(std::move(name)),
 				mtime_(std::move(mtime)),
 				size_(std::move(fsize)),
@@ -63,7 +62,7 @@ void indexer_test()
 			return nullptr;
 		};
 
-		dr.read(get_cwd());
+        dr.read(get_cwd());
 
 		locale_traits<char> comparator;
 
@@ -82,14 +81,15 @@ void indexer_test()
 		//	std::cout << e.name_ << std::endl;
 
 		directory_indexer di;
-		std::string db_name = temp_name();
+        //string db_name = temp_path(false) + CPPX_U("indexer_test.sqlite");
+        string db_name = temp_name() + CPPX_U(".sqlite");
 		
 		//sqlite::sqlite_config db_config;
         //db_config.flags = sqlite::OpenFlags::READWRITE | sqlite::OpenFlags::CREATE;
 		//db_config.encoding = sqlite::Encoding::UTF8;
 		//sqlite::database db(db_name, db_config); // ":memory:"
 		//sqlite3_busy_timeout(db.connection().get(), 15000); // milliseconds
-		sqlite3pp::database db(db_name);
+        sqlite3pp::database db(str2utf(db_name));
 
 		sqlite3pp::command pragmas(db, R"EOS(
 			PRAGMA page_size = 4096;
@@ -106,7 +106,11 @@ void indexer_test()
 		di.reindex(db);
 
 	}
-	catch (...) {
+    catch (const std::exception & e) {
+        std::cerr << e.what() << std::endl;
+        fail = true;
+    }
+    catch (...) {
 		fail = true;
 	}
 
