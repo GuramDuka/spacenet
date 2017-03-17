@@ -1,7 +1,7 @@
 TEMPLATE = app
 
 QT += qml quick
-CONFIG += c++14
+CONFIG += c++14 stl thread rtti exceptions largefile
 
 SOURCES += \
     ../../../src/cdc512.cpp \
@@ -11,9 +11,11 @@ SOURCES += \
     ../../../tests/indexer_test.cpp \
     ../../../tests/locale_traits_test.cpp \
     ../../../src/sqlite3.c \
-    ../../../tests/tests.cpp \
     ../../../src/locale_traits.cpp \
-    ../../../src/tracker.cpp
+    ../../../src/tracker.cpp \
+    ../../../tests/tracker_test.cpp \
+    ../../../tests/rand_test.cpp \
+    ../../../tests/all_tests.cpp
 
 RESOURCES += qml.qrc
 
@@ -40,9 +42,13 @@ HEADERS += \
     ../../../include/sqlite/sqlite_modern_cpp/utility/variant.h \
     ../../../include/sqlite/sqlite3.h \
     ../../../include/sqlite/sqlite3ext.h \
-    ../../../include/tracker.hpp
+    ../../../include/tracker.hpp \
+    ../../../include/rand.hpp
 
 INCLUDEPATH += .
 INCLUDEPATH += ../../../include
 
 #QMAKE_CXXFLAGS += -std=c++17
+DEFINES += SQLITE_THREADSAFE=1
+DEFINES += BUILD_DATE='"\\\"$(shell date)\\\""'
+DEFINES += GIT_VERSION='$(shell git describe --always)'

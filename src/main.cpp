@@ -31,14 +31,11 @@ int main(int argc,char ** argv)
 {
     spacenet::tests::run_tests();
 
-    //QGuiApplication app(argc, argv);
-    //QQmlApplicationEngine engine;
+    QGuiApplication app(argc, argv);
+    QQmlApplicationEngine engine;
 
-    //engine.load(QUrl(QStringLiteral("qrc:/main.qml")));
+    engine.load(QUrl(QStringLiteral("qrc:/main.qml")));
 
-    //return app.exec();
-    argc = argc;
-    argv = argv;
-    return 0;
+    return app.exec();
 }
 //------------------------------------------------------------------------------

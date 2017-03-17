@@ -56,9 +56,9 @@ void indexer_test()
 
 		std::vector<entry> lst;
 
-		dr.recursive = dr.list_directories = true;
-		dr.manipulator = [&] {
-			lst.emplace_back(entry(dr.path_name, dr.mtime, dr.fsize, dr.is_reg));
+        dr.recursive_ = dr.list_directories_ = true;
+        dr.manipulator_ = [&] {
+            lst.emplace_back(entry(dr.path_name_, dr.mtime, dr.fsize, dr.is_reg));
 			return nullptr;
 		};
 
@@ -103,7 +103,7 @@ void indexer_test()
 		
 		pragmas.execute_all();
 		
-		di.reindex(db);
+        di.reindex(db, get_cwd());
 
 	}
     catch (const std::exception & e) {

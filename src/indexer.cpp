@@ -26,9 +26,6 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <share.h>
-#ifndef _WIN32
-#include <dirent.h>
-#endif
 #include <ctime>
 #include <cerrno>
 #include <cstring>
@@ -36,9 +33,13 @@
 #include <fstream>
 #include <atomic>
 #include <unordered_map>
+#include <stack>
 #include <typeinfo>
 #if _WIN32
+#include <process.h>
 #include <windows.h>
+#else
+#include <dirent.h>
 #endif
 //------------------------------------------------------------------------------
 #if defined(_S_IFDIR) && !defined(S_IFDIR)
@@ -71,6 +72,103 @@ const string::value_type path_delimiter[] =
 #endif
 ;
 //------------------------------------------------------------------------------
+int mkdir(const string & path_name)
+{
+    int err;
+
+    auto make = [&] {
+        bool r;
+
+        err = 0;
+#if _WIN32
+        r = CreateDirectoryW(path_name.c_str(), NULL) == FALSE;
+        if( r ) {
+            err = GetLastError();
+            if( err == ERROR_ALREADY_EXISTS ) {
+                r = false;
+                err = EEXIST;
+            }
+            if( err != ERROR_PATH_NOT_FOUND && err != ERROR_ALREADY_EXISTS )
+#else
+        r = mkdir(path_name.c_str(), S_IRUSR | S_IWUSR | S_IXUSR) != 0;
+        if( r ) {
+            err = errno;
+            if( err == EEXIST )
+                r = false;
+            if( err != ENOTDIR && r != EEXIST )
+#endif
+                throw std::runtime_error("Error create directory, " + std::to_string(err));
+        }
+
+        return r;
+    };
+
+    if( make() ) {
+        auto i = path_name.rfind(path_delimiter[0]);
+
+        if( i == string::npos )
+            throw std::runtime_error("Error create directory");
+
+        mkdir(string(path_name, 0, i));
+
+        if( make() )
+            throw std::runtime_error("Error create directory");
+    }
+
+    return err;
+}
+//------------------------------------------------------------------------------
+int access(const string & path_name, int mode)
+{
+#if _WIN32
+    return _waccess(path_name.c_str(), mode);
+#else
+    return access(path_name.c_str(), mode);
+#endif
+}
+//------------------------------------------------------------------------------
+#if _WIN32
+const wchar_t *
+#else
+const char *
+#endif
+getenv(const string & var_name)
+{
+#if _WIN32
+    return _wgetenv(var_name.c_str());
+#else
+    return getenv(var_name.c_str());
+#endif
+}
+//------------------------------------------------------------------------------
+string home_path(bool no_back_slash)
+{
+    string s;
+#if _WIN32
+    s = _wgetenv(L"HOMEDRIVE");
+    s += _wgetenv(L"HOMEPATH");
+
+    if( _waccess(s.c_str(), R_OK | W_OK | X_OK) != 0 )
+        s = _wgetenv(L"USERPROFILE");
+
+    if( _waccess(s.c_str(), R_OK | W_OK | X_OK) != 0 )
+        throw std::runtime_error("Access denied to user home directory");
+#else
+    s = getenv(L"HOME");
+
+    if( access(s.c_str(), R_OK | W_OK | X_OK) != 0 )
+        throw std::runtime_error("Access denied to user home directory");
+#endif
+    if( no_back_slash ) {
+        if( s.back() == path_delimiter[0] )
+            s.pop_back();
+    }
+    else if( s.back() != path_delimiter[0] )
+        s.push_back(path_delimiter[0]);
+
+    return s;
+}
+//------------------------------------------------------------------------------
 string temp_path(bool no_back_slash)
 {
     string s;
@@ -93,11 +191,53 @@ string temp_path(bool no_back_slash)
     return s;
 }
 //------------------------------------------------------------------------------
+#if _WIN32 && _MSC_VER
+//------------------------------------------------------------------------------
+int clock_gettime(int /*dummy*/, struct timespec * ct)
+{
+    static thread_local bool initialized = false;
+    static thread_local uint64_t freq = 0;
+
+    if( !initialized ) {
+        LARGE_INTEGER f;
+
+        if( QueryPerformanceFrequency(&f) != FALSE )
+            freq = f.QuadPart;
+
+        initialized = true;
+    }
+
+    LARGE_INTEGER t;
+
+    if( freq == 0 ) {
+        FILETIME f;
+        GetSystemTimeAsFileTime(&f);
+
+        t.QuadPart = f.dwHighDateTime;
+        t.QuadPart <<= 32;
+        t.QuadPart |= f.dwLowDateTime;
+
+        ct->tv_sec = decltype(ct->tv_sec)((t.QuadPart / 10000000));
+        ct->tv_nsec = decltype(ct->tv_nsec)((t.QuadPart % 10000000) * 100); // FILETIME is in units of 100 nsec.
+    }
+    else {
+        QueryPerformanceCounter(&t);
+        ct->tv_sec = decltype(ct->tv_sec)((t.QuadPart / freq));
+        //uint64_t q = t.QuadPart % freq;
+        //freq -> 1000000000ns
+        //q    -> x?
+        ct->tv_nsec = decltype(ct->tv_nsec)((t.QuadPart % freq) * 1000000000 / freq);
+    }
+
+    return 0;
+}
+//------------------------------------------------------------------------------
+#endif
+//------------------------------------------------------------------------------
 string temp_name(string dir, string pfx)
 {
     constexpr int MAXTRIES = 10000;
 	static std::atomic_int index;
-	int pid = getpid();
     string s;
 
 	if( dir.empty() )
@@ -105,11 +245,8 @@ string temp_name(string dir, string pfx)
     if( pfx.empty() )
         pfx = CPPX_U("temp");
 
-#if _WIN32
-    if( _waccess(dir.c_str(), R_OK | W_OK | X_OK) != 0 )
-#else
-    if( access(dir.c_str(), R_OK | W_OK | X_OK) != 0 )
-#endif
+    int pid = _getpid();
+    if( access(dir, R_OK | W_OK | X_OK) != 0 )
         throw std::runtime_error("access denied to directory: " + str2utf(dir));
 
     size_t l = dir.size() + 1 + pfx.size() + 4 * (sizeof(int) * 3 + 2) + 1;
@@ -123,26 +260,18 @@ string temp_name(string dir, string pfx)
         int m = int(ts.tv_sec ^ uintptr_t(&s[0]) ^ uintptr_t(&s));
         int n = int(ts.tv_nsec ^ uintptr_t(&s[0]) ^ uintptr_t(&s));
 #if _WIN32
-        snwprintf(&s[0], l, CPPX_U("%ls\\%ls-%d-%d-%x-%x"),
+        _snwprintf(&s[0], l, CPPX_U("%ls\\%ls-%d-%d-%x-%x"),
 #else
         snprintf(&s[0], l, CPPX_U("%s/%s-%d-%d-%x-%x"),
 #endif
         dir.c_str(), pfx.c_str(), pid, index.fetch_add(1), m, n);
     }
-#if _WIN32
-    while( !_waccess(s.c_str(), F_OK) && try_n++ < MAXTRIES );
-#else
-    while( !access(s.c_str(), F_OK) && try_n++ < MAXTRIES );
-#endif
+    while( !access(s, F_OK) && try_n++ < MAXTRIES );
 
 	if( try_n >= MAXTRIES )
         throw std::range_error("function temp_name MAXTRIES reached");
 
-#if _WIN32
-    s.resize(wcslen(s.c_str()));
-#else
     s.resize(strlen(s.c_str()));
-#endif
 
 	return s;
 }
@@ -243,13 +372,13 @@ struct file_stat :
 //------------------------------------------------------------------------------
 void directory_reader::read(const string & root_path)
 {
-    regex mask_regex(mask.empty() ? CPPX_U(".*") : mask);
-    regex exclude_regex(exclude);
+    regex mask_regex(mask_.empty() ? CPPX_U(".*") : mask_);
+    regex exclude_regex(exclude_);
 
-	path = root_path;
+    path_ = root_path;
 
-	if( path.back() == path_delimiter[0] )
-		path.pop_back();
+    if( path_.back() == path_delimiter[0] )
+        path_.pop_back();
 
 	struct stack_entry {
 #if _WIN32
@@ -293,7 +422,11 @@ void directory_reader::read(const string & root_path)
 	DIR * handle = nullptr;
 #endif
 
+    abort_ = false;
+
 	for(;;) {
+        if( abort_ )
+            break;
 #if _WIN32
 		DWORD err;
 		WIN32_FIND_DATAW fdw;
@@ -308,7 +441,7 @@ void directory_reader::read(const string & root_path)
 
 #if _WIN32
 		if( handle == INVALID_HANDLE_VALUE ) {
-            handle = FindFirstFileW((path + L"\\*").c_str(), &fdw);
+            handle = FindFirstFileW((path_ + L"\\*").c_str(), &fdw);
 #else
 		if( handle == nullptr ) {
 			handle = ::opendir(path.c_str());
@@ -319,21 +452,21 @@ void directory_reader::read(const string & root_path)
 		}
 		else {
 			handle = stack.top().handle;
-			path = stack.top().path;
+            path_ = stack.top().path;
 			stack.pop();
 #if _WIN32
             lstrcpyW(fdw.cFileName, L"");
 #endif
 		}
 
-		level = stack.size() + 1;
+        level_ = stack.size() + 1;
 #if _WIN32
 		if( handle == INVALID_HANDLE_VALUE ) {
 			err = GetLastError();
 			if( err == ERROR_PATH_NOT_FOUND )
 				return;
             throw std::runtime_error(
-                str2utf(L"Failed to open directory: " + path + L", " + std::to_wstring(err)));
+                str2utf(L"Failed to open directory: " + path_ + L", " + std::to_wstring(err)));
 
 #else
 		if( handle == nullptr ) {
@@ -358,14 +491,17 @@ void directory_reader::read(const string & root_path)
 
 #if _WIN32
 		do {
+            if( abort_ )
+                break;
+
 			if( lstrcmpW(fdw.cFileName, L"") == 0 )
 				continue;
-			if( lstrcmpW(fdw.cFileName, L".") == 0 && !list_dot )
+            if( lstrcmpW(fdw.cFileName, L".") == 0 && !list_dot_ )
 				continue;
-			if( lstrcmpW(fdw.cFileName, L"..") == 0 && !list_dotdot )
+            if( lstrcmpW(fdw.cFileName, L"..") == 0 && !list_dotdot_ )
 				continue;
 
-            name = fdw.cFileName;
+            name_ = fdw.cFileName;
 #elif HAVE_READDIR_R
 		for(;;) {
 			if( readdir_r(handle, ent, &result) != 0 ) {
@@ -401,17 +537,17 @@ void directory_reader::read(const string & root_path)
 
 			name = ent->d_name;
 #endif
-			bool match = std::regex_match(name, mask_regex);
+            bool match = std::regex_match(name_, mask_regex);
 
-			if( match && !exclude.empty() )
-				match = !std::regex_match(name, exclude_regex);
+            if( match && !exclude_.empty() )
+                match = !std::regex_match(name_, exclude_regex);
 
-			path_name = path + path_delimiter + name;
+            path_name_ = path_ + path_delimiter + name_;
 
 #if _WIN32
             fsize = fdw.nFileSizeHigh;
             fsize <<= 32;
-            fsize += fdw.nFileSizeLow;
+            fsize |= fdw.nFileSizeLow;
             is_reg = (fdw.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) == 0;
             is_dir = (fdw.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
             is_lnk = false;
@@ -473,12 +609,12 @@ void directory_reader::read(const string & root_path)
 			if( (st.st_mode & S_IFDIR) != 0 ) {
 #endif
 
-				if( list_directories && match && manipulator )
-					manipulator();
+                if( list_directories_ && match && manipulator_ )
+                    manipulator_();
 
-				if( recursive && (max_level == 0 || stack.size() < max_level ) ) {
-					stack.push({ handle, path });
-					path += path_delimiter + name;
+                if( recursive_ && (max_level_ == 0 || stack.size() < max_level_ ) ) {
+                    stack.push({ handle, path_ });
+                    path_ += path_delimiter + name_;
 #if _WIN32
 					handle = INVALID_HANDLE_VALUE;
 #else
@@ -488,8 +624,8 @@ void directory_reader::read(const string & root_path)
 				}
 			}
 			else if( match ) {
-				if( manipulator )
-					manipulator();
+                if( manipulator_ )
+                    manipulator_();
 			}
 		}
 #if _WIN32
@@ -498,7 +634,7 @@ void directory_reader::read(const string & root_path)
 		if( handle != INVALID_HANDLE_VALUE && GetLastError() != ERROR_NO_MORE_FILES ) {
 			err = GetLastError();
             throw std::runtime_error(
-                str2utf(L"Failed to read directory: " + path + L", " + std::to_wstring(err)));
+                str2utf(L"Failed to read directory: " + path_ + L", " + std::to_wstring(err)));
 		}
 #endif
 	}
@@ -506,10 +642,11 @@ void directory_reader::read(const string & root_path)
 //------------------------------------------------------------------------------
 ////////////////////////////////////////////////////////////////////////////////
 //------------------------------------------------------------------------------
-void directory_indexer::reindex(sqlite3pp::database & db)
+void directory_indexer::reindex(
+    sqlite3pp::database & db,
+    const string & dir_path_name,
+    bool * p_shutdown)
 {
-    constexpr const size_t BLOCK_SIZE = 4096;
-
     db.execute_all(R"EOS(
         CREATE TABLE IF NOT EXISTS entries (
             is_alive		INTEGER NOT NULL,   /* boolean */
@@ -518,7 +655,7 @@ void directory_indexer::reindex(sqlite3pp::database & db)
             name			TEXT NOT NULL,      /* file name*/
             is_dir			INTEGER,            /* boolean */
             mtime			INTEGER,            /* INTEGER as Unix Time, the number of seconds since 1970-01-01 00:00:00 UTC. */
-            mtime_ns		INTEGER,            /* nanoseconds, if supported else zero or NULL */
+            /*mtime_ns		INTEGER,*/            /* nanoseconds, if supported else zero or NULL */
             file_size		INTEGER,            /* file size in bytes */
             block_size		INTEGER,            /* file block size in bytes */
             digest			BLOB,               /* file checksum */
@@ -539,8 +676,7 @@ void directory_indexer::reindex(sqlite3pp::database & db)
     sqlite3pp::query st_sel(db, R"EOS(
         SELECT
             rowid,
-            mtime,
-            mtime_ns
+            mtime
         FROM
             entries
         WHERE
@@ -550,18 +686,16 @@ void directory_indexer::reindex(sqlite3pp::database & db)
 
 	sqlite3pp::command st_ins(db, R"EOS(
         INSERT INTO entries (
-            is_alive, parent_id, name, is_dir, mtime, mtime_ns, file_size, block_size, digest
-        ) VALUES (1, :parent_id, :name, :is_dir, :mtime, :mtime_ns, :file_size, :block_size, NULL)
+            is_alive, parent_id, name, is_dir, mtime, file_size, block_size, digest
+        ) VALUES (0, :parent_id, :name, :is_dir, NULL, :file_size, :block_size, NULL)
 	)EOS");
 	
 	sqlite3pp::command st_upd(db, R"EOS(
         UPDATE entries SET
-            is_alive = 1,
+            is_alive = 0,
             parent_id = :parent_id,
             name = :name,
             is_dir = :is_dir,
-            mtime = :mtime,
-            mtime_ns = :mtime_ns,
             file_size = :file_size,
             block_size = :block_size,
             digest = NULL
@@ -572,14 +706,15 @@ void directory_indexer::reindex(sqlite3pp::database & db)
 
     sqlite3pp::command st_upd_touch(db, R"EOS(
         UPDATE entries SET
-            is_alive = 1
+            is_alive = 0
         WHERE
             rowid = :id
     )EOS");
 
-    sqlite3pp::command st_upd_digest(db, R"EOS(
+    sqlite3pp::command st_upd_after(db, R"EOS(
         UPDATE entries SET
-            is_alive = 1,
+            is_alive = 0,
+            mtime = :mtime,
             digest = :digest
         WHERE
             rowid = :id
@@ -640,7 +775,6 @@ void directory_indexer::reindex(sqlite3pp::database & db)
 		const std::string & name,
 		bool is_dir,
         uint64_t mtime,
-        uint32_t mtime_ns,
         uint64_t file_size,
         uint64_t block_size,
         uint64_t * p_mtim = nullptr)
@@ -648,16 +782,6 @@ void directory_indexer::reindex(sqlite3pp::database & db)
 		auto bind = [&] (auto & st) {
             st.bind("parent_id", parent_id);
             st.bind("name", name, sqlite3pp::nocopy);
-
-            if( mtime == 0 )
-                st.bind("mtime", nullptr);
-            else
-                st.bind("mtime", mtime);
-
-            if( mtime_ns == 0 )
-                st.bind("mtime_ns", nullptr);
-            else
-                st.bind("mtime_ns", mtime_ns);
 
 			if( is_dir )
                 st.bind("is_dir", is_dir);
@@ -681,23 +805,22 @@ void directory_indexer::reindex(sqlite3pp::database & db)
         st_sel.bind("parent_id", parent_id);
         st_sel.bind("name", name, sqlite3pp::nocopy);
 
-        uint64_t id = 0, mtim = 0, fmtim = mtime * 1000000000 + mtime_ns;
+        uint64_t id = 0, mtim = 0;
 
         auto get_id_mtim = [&] {
             auto i = st_sel.begin();
 
             if( i ) {
                 id = i->get<uint64_t>("rowid");
-                mtim = i->get<uint64_t>("mtime") * 1000000000
-                    + i->get<uint32_t>("mtime_ns");
+                mtim = i->get<uint64_t>("mtime");
             }
         };
 
-        if( modified_only_ )
-            get_id_mtim();
+        db.exceptions(true);
+        get_id_mtim();
 
         // then mtime not changed, just touch entry
-        if( modified_only_ && id != 0 && (mtim == fmtim || fmtim == 0) ) {
+        if( modified_only_ && id != 0 && (mtim == mtime || mtime == 0) ) {
             st_upd_touch.bind("id", id);
             st_upd_touch.execute();
         }
@@ -712,11 +835,11 @@ void directory_indexer::reindex(sqlite3pp::database & db)
             }
         }
 
-        if( id == 0 )
-            get_id_mtim();
-
         if( p_mtim != nullptr )
             *p_mtim = mtim;
+
+        if( id == 0 )
+            get_id_mtim();
 
         return id;
     };
@@ -724,8 +847,8 @@ void directory_indexer::reindex(sqlite3pp::database & db)
     auto update_blocks = [&] (
         cdc512 & file_ctx,
         const string & path_name,
-        const std::string & utf_path_name,
-        uint64_t entry_id)
+        uint64_t entry_id,
+        size_t block_size)
     {
         int in = -1;
 
@@ -744,64 +867,67 @@ void directory_indexer::reindex(sqlite3pp::database & db)
         //std::wifstream in(dr.path_name, std::ios::binary);
         //in.exceptions(std::ios::failbit | std::ios::badbit);
         if( err != 0 )
-            throw std::runtime_error(
-                "Failed open file: " + utf_path_name + ", " + std::to_string(err));
+            //throw std::runtime_error(
+            //    "Failed open file: " + utf_path_name + ", " + std::to_string(err));
+            return false;
 
         uint64_t blk_no = 0;
+        std::vector<uint8_t> buf(block_size);
 
         for(;;) {//while( !in.eof() ) {
             blk_no++;
-
-            uint8_t buf[BLOCK_SIZE];
             //in.read(reinterpret_cast<char *>(buf), BLOCK_SIZE);
             //auto r = in.gcount();
 
-            auto r = _read(in, buf, BLOCK_SIZE);
+            auto r = _read(in, &buf[0], uint32_t(block_size));
 
             if( r == -1 ) {
-                err = errno;
-                throw std::runtime_error(
-                    "Failed read file: " + utf_path_name + ", " + std::to_string(err));
+                //err = errno;
+                //throw std::runtime_error(
+                //    "Failed read file: " + utf_path_name + ", " + std::to_string(err));
+                return false;
             }
 
             if( r == 0 )
                 break;
 
-            if( size_t(r) < BLOCK_SIZE )
-                std::memset(buf + r, 0, BLOCK_SIZE - r);
+            if( size_t(r) < block_size )
+                std::memset(&buf[r], 0, block_size - r);
 
             blob block_digest;
-            cdc512 blk_ctx(block_digest, std::cbegin(buf), std::cend(buf));
+            cdc512 blk_ctx(block_digest, buf.cbegin(), buf.cend());
             update_block_digest(entry_id, blk_no, block_digest);
 
             st_blk_del.bind("entry_id", entry_id);
             st_blk_del.bind("block_no", blk_no);
             st_blk_del.execute();
 
-            file_ctx.update(std::cbegin(buf), std::cend(buf));
+            file_ctx.update(buf.cbegin(), buf.cend());
         }
+
+        return true;
     };
 
     directory_reader dr;
-    dr.recursive = dr.list_directories = true;
-    dr.manipulator = [&] {
+    dr.recursive_ = dr.list_directories_ = true;
+    dr.manipulator_ = [&] {
+        if( p_shutdown != nullptr && *p_shutdown ) {
+            dr.abort_ = true;
+            return;
+        }
+
         // skip inaccessible files or directories
-#if _WIN32
-        if( _waccess(dr.path_name.c_str(), R_OK | (dr.is_dir ? X_OK : 0)) != 0 )
-#else
-        if( access(dr.path_name.c_str(), R_OK | (dr.is_dir ? X_OK : 0)) != 0 )
-#endif
+        if( access(dr.path_name_, R_OK | (dr.is_dir ? X_OK : 0)) != 0 )
             return;
 
-        auto utf_name = str2utf(dr.name);
-        auto utf_path = str2utf(dr.path);
-        auto utf_path_name = str2utf(dr.path_name);
+        auto utf_name = str2utf(dr.name_);
+        auto utf_path = str2utf(dr.path_);
 
         uint64_t parent_id = [&] {
             auto pit = parents.find(utf_path);
 
 			if( pit == parents.cend() ) {
-                if( dr.level > 1 )
+                if( dr.level_ > 1 )
 					throw std::runtime_error("Undefined behavior");
 
                 auto id = update_entry(0, utf_path, true, 0, 0, 0, 0);
@@ -812,34 +938,39 @@ void directory_indexer::reindex(sqlite3pp::database & db)
             return pit->second;
         }();
 
-        uint64_t mtim, entry_id = update_entry(
+        size_t block_size = 4096;
+
+        uint64_t mtim, fmtim = dr.mtime * 1000000000 + dr.mtime_ns;
+        uint64_t entry_id = update_entry(
             parent_id,
             utf_name,
             dr.is_dir,
-            dr.mtime,
-            dr.mtime_ns,
+            fmtim,
             dr.fsize,
-            BLOCK_SIZE,
+            block_size,
             &mtim);
 
         if( dr.is_dir )
-            parents.emplace(std::make_pair(utf_path_name, entry_id));
+            parents.emplace(std::make_pair(str2utf(dr.path_name_), entry_id));
 
         // if file modified then calculate digests
-        if( dr.is_reg && mtim != dr.mtime * 1000000000 + dr.mtime_ns ) {
+
+        if( dr.is_reg && (!modified_only_ || mtim != fmtim) ) {
             cdc512 ctx;
-            update_blocks(ctx, dr.path_name, utf_path_name, entry_id);
 
-            blob digest;
-            ctx.finish(digest);
+            if( update_blocks(ctx, dr.path_name_, entry_id, block_size) ) {
+                blob digest;
+                ctx.finish(digest);
 
-            st_upd_digest.bind("id", entry_id);
-            st_upd_digest.bind("digest", digest, sqlite3pp::nocopy);
-            st_upd_digest.execute();
+                st_upd_after.bind("id", entry_id);
+                st_upd_after.bind("mtime", fmtim);
+                st_upd_after.bind("digest", digest, sqlite3pp::nocopy);
+                st_upd_after.execute();
+            }
         }
 	};
 	
-    dr.read(CPPX_U("C:\\hiew"));//get_cwd());
+    dr.read(dir_path_name);
 		
     auto cleanup_entries = [&db] {
         //sqlite3pp::query st_sel(db, R"EOS(
@@ -848,7 +979,7 @@ void directory_indexer::reindex(sqlite3pp::database & db)
         //    FROM
         //        entries
         //    WHERE
-        //        is_alive = 0
+        //        is_alive <> 0
         //)EOS");
 
         //sqlite3pp::command st_del(db, R"EOS(
@@ -871,10 +1002,10 @@ void directory_indexer::reindex(sqlite3pp::database & db)
                 FROM
                     entries
                 WHERE
-                    is_alive = 0
+                    is_alive <> 0
             );
-            DELETE FROM entries WHERE is_alive = 0;
-            UPDATE entries SET is_alive = 0;
+            DELETE FROM entries WHERE is_alive <> 0;
+            UPDATE entries SET is_alive = 1;
         )EOS");
 
         xct.commit();

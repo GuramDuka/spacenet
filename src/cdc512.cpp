@@ -126,9 +126,9 @@ void cdc512::finish()
 	bh = vhtobe64(h);
 }
 //---------------------------------------------------------------------------
-string cdc512::to_string()
+std::string cdc512::to_string() const
 {
-    stringstream s;
+    std::stringstream s;
 	
 	s.fill('0');
 	s.width(2);
@@ -146,6 +146,24 @@ string cdc512::to_string()
 	s << std::setw(2) << uint16_t(digest[i]);
 
 	return s.str();
+}
+//---------------------------------------------------------------------------
+std::string cdc512::to_short_string() const
+{
+    std::string s;
+    //constexpr const char * abc = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    constexpr const char abc[] = "._,=~!@#$%^&-+0123456789abcdefghijklmnopqrstuvwxyz";
+
+    for( intptr_t i = sizeof(digest) / sizeof(uint64_t) - 1; i >= 0; i-- ) {
+        uint64_t a = digest64[i];
+
+        while( a ) {
+            s.push_back(abc[a % (sizeof(abc) - 1)]);
+            a /= sizeof(abc) - 1;
+        }
+    }
+
+    return s;
 }
 //---------------------------------------------------------------------------
 } // namespace spacenet

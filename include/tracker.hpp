@@ -27,6 +27,12 @@
 //------------------------------------------------------------------------------
 #pragma once
 //------------------------------------------------------------------------------
+#include <thread>
+#include <mutex>
+#include <chrono>
+#include <atomic>
+#include <condition_variable>
+//------------------------------------------------------------------------------
 #include "indexer.hpp"
 //------------------------------------------------------------------------------
 namespace spacenet {
@@ -35,17 +41,46 @@ namespace spacenet {
 //------------------------------------------------------------------------------
 class directory_tracker {
     private:
-        bool modified_only_;
+        string dir_user_defined_name_;
+        string dir_path_name_;
+        string db_name_;
+        string db_path_;
+        string db_path_name_;
+
+        string error_;
+        std::unique_ptr<std::thread> thread_;
+        std::mutex mtx_;
+        std::condition_variable cv_;
+        bool shutdown_;
+
+        void worker();
+
     protected:
     public:
-        const auto & modified_only() const {
-            return modified_only;
+        ~directory_tracker() {
+            shutdown();
         }
 
-        directory_indexer & modified_only(decltype(modified_only_) modified_only) {
-            modified_only_ = modified_only;
+        const string & dir_user_defined_name() const {
+            return dir_user_defined_name_;
+        }
+
+        directory_tracker & dir_user_defined_name(const string & dir_user_defined_name) {
+            dir_user_defined_name_ = dir_user_defined_name;
             return *this;
         }
+
+        const string & dir_path_name() const {
+            return dir_path_name_;
+        }
+
+        directory_tracker & dir_path_name(const string & dir_path_name) {
+            dir_path_name_ = dir_path_name;
+            return *this;
+        }
+
+        void run();
+        void shutdown();
 };
 //------------------------------------------------------------------------------
 namespace tests {

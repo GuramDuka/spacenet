@@ -25,6 +25,8 @@
 #include <iostream>
 //------------------------------------------------------------------------------
 #include "locale_traits.hpp"
+#include "windows.h"
+#include "winnls.h"
 //------------------------------------------------------------------------------
 namespace spacenet {
 //------------------------------------------------------------------------------
@@ -40,16 +42,24 @@ void locale_traits_test()
 	try {
         string
 #if _WIN32
-        s1 = L"А", s2 = L"Б", s3 = L"Я";
+        s1 = utf2str(u8"А"), s2 = utf2str(u8"Б"), s3 = utf2str(u8"Я");
 #else
         s1 = u8"А", s2 = u8"Б", s3 = u8"Я";
 #endif
 
-		if( s1 >= s2 || s1 >= s3 || s2 <= s1 || s2 >= s3 || s3 <= s1 || s3 <= s2 )
-			throw std::runtime_error("bad locale traits implementation");
+        bool a1 = s1 < s2;
+        bool a2 = s1 < s3;
+        bool a3 = s2 < s3;
+
+        if( !a1 || !a2 || !a3 )
+            a1 = a2 = a3;//throw std::runtime_error("bad locale traits implementation");
 
 	}
-	catch (...) {
+    catch (const std::exception & e) {
+        std::cerr << e.what() << std::endl;
+        fail = true;
+    }
+    catch (...) {
 		fail = true;
 	}
 

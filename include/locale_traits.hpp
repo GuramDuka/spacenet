@@ -52,7 +52,7 @@ template <typename CharType>
 struct locale_traits : public std::char_traits<CharType> {
 	static auto lt(CharType a, CharType b) {
 #if _WIN32
-        return std::wcsncmp(&a, &b, 1) < 0;
+        return _wcsncoll(&a, &b, 1) < 0;
 #else
         return coll->compare(&a, &a + 1, &b, &b + 1) < 0;
 #endif
@@ -60,7 +60,7 @@ struct locale_traits : public std::char_traits<CharType> {
 
 	static auto compare(const CharType * s1, const CharType * s2, size_t n) {
 #if _WIN32
-        return std::wcsncmp(s1, s2, n);
+        return _wcsncoll(s1, s2, n);
 #else
         return coll->compare(s1, s1 + n, s2, s2 + n);
 #endif
@@ -73,7 +73,7 @@ struct locale_traits : public std::char_traits<CharType> {
     template <typename T>
     static auto compare(const T & s1, const T & s2) {
 #if _WIN32
-        return std::wcscmp(&s1[0], &s2[0]);
+        return wcscoll(&s1[0], &s2[0]);
 #else
 		return coll->compare(&s1[0], &s1[0] + s1.size(), &s2[0], &s2[0] + s2.size());
 #endif
@@ -94,20 +94,24 @@ struct locale_traits : public std::char_traits<CharType> {
 //------------------------------------------------------------------------------
 #if _WIN32
 //------------------------------------------------------------------------------
-//typedef std::basic_string<wchar_t, locale_traits<wchar_t>> string;
-//typedef std::basic_stringstream<wchar_t, locale_traits<wchar_t>> stringstream;
-//typedef std::basic_regex<wchar_t, locale_traits<wchar_t>> regex;
+struct char_traits : public std::char_traits<wchar_t> {
+    static int compare(const char_type * _First1, const char_type * _First2, size_t _Count) {
+        return _wcsncoll(_First1, _First2, _Count / sizeof(char_type));
+    }
+};
+//typedef std::basic_string<wchar_t, char_traits, std::allocator<wchar_t> > string;
+//typedef std::basic_stringstream<wchar_t, char_traits, std::allocator<wchar_t> > stringstream;
 typedef std::wstring string;
 typedef std::wstringstream stringstream;
 typedef std::wregex regex;
 //------------------------------------------------------------------------------
-//inline string operator + (const wchar_t * s1, const string & s2) {
-//    return string(s1) + s2;
-//}
+inline string operator + (const wchar_t * s1, const string & s2) {
+    return string(s1) + s2;
+}
 //------------------------------------------------------------------------------
-//inline string operator + (const string & s1, const std::wstring & s2) {
-//    return s1 + s2;
-//}
+inline string operator + (const string & s1, const std::wstring & s2) {
+    return s1 + s2.c_str();
+}
 //------------------------------------------------------------------------------
 #else
 //------------------------------------------------------------------------------
@@ -122,6 +126,10 @@ typedef std::regex regex;
 //------------------------------------------------------------------------------
 std::wstring str2wstr(const std::string & str);
 std::string wstr2str(const std::wstring & str);
+//------------------------------------------------------------------------------
+inline auto strlen(const wchar_t * s) {
+    return wcslen(s);
+}
 //------------------------------------------------------------------------------
 #if _WIN32
 //------------------------------------------------------------------------------

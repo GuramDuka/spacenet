@@ -26,7 +26,9 @@
 //------------------------------------------------------------------------------
 #include "locale_traits.hpp"
 #include "cdc512.hpp"
+#include "rand.hpp"
 #include "indexer.hpp"
+#include "tracker.hpp"
 //------------------------------------------------------------------------------
 namespace spacenet {
 //------------------------------------------------------------------------------
@@ -34,9 +36,11 @@ namespace tests {
 //------------------------------------------------------------------------------
 void run_tests()
 {
-    spacenet::tests::locale_traits_test();
-    spacenet::tests::cdc512_test();
-    spacenet::tests::indexer_test();
+    locale_traits_test();
+    cdc512_test();
+    indexer_test();
+    tracker_test();
+    rand_test();
 }
 //------------------------------------------------------------------------------
 } // namespace tests

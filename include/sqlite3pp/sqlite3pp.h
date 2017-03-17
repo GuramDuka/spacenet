@@ -104,8 +104,10 @@ namespace sqlite3pp {
         using authorize_handler = std::function<int (int, char const*, char const*, char const*, char const*) >;
         using backup_handler = std::function<void (int, int, int) >;
 
-        explicit database(char const* dbname = nullptr, int flags = SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, const char* vfs = nullptr)
-        : db_(nullptr), exceptions_(true) {
+        explicit database() : db_(nullptr), exceptions_(true) {}
+
+        explicit database(char const* dbname, int flags = SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, const char* vfs = nullptr)
+            : db_(nullptr), exceptions_(true) {
             if (dbname != nullptr)
                 connect(dbname, flags, vfs);
         }
@@ -142,7 +144,7 @@ namespace sqlite3pp {
             disconnect();
         }
 
-        int connect(char const* dbname, int flags, char const* vfs) {
+        int connect(char const* dbname, int flags, char const* vfs = nullptr) {
             disconnect();
 
             int rc = sqlite3_open_v2(dbname, &db_, flags, vfs);
@@ -153,13 +155,18 @@ namespace sqlite3pp {
             return rc;
         }
 
+        int connect(const std::string & dbname, int flags, char const* vfs = nullptr) {
+            return connect(dbname.c_str(), flags, vfs);
+        }
+
         int disconnect() {
             auto rc = SQLITE_OK;
-            if (db_) {
+            if (db_ != nullptr) {
                 rc = sqlite3_close_v2(db_);
-                if (rc == SQLITE_OK) {
+                if (rc != SQLITE_OK)
+                    throw_database_error();
+                if (rc == SQLITE_OK)
                     db_ = nullptr;
-                }
             }
 
             return rc;
@@ -302,6 +309,10 @@ namespace sqlite3pp {
 
         sqlite3 * const & handle() const {
             return db_;
+        }
+
+        bool connected() const {
+            return db_ != nullptr;
         }
 
     private:
@@ -459,10 +470,10 @@ namespace sqlite3pp {
         }
 
         int bind(int idx, char const* value, copy_semantic fcopy) {
-            rc_ = sqlite3_bind_text(stmt_, idx, value, std::strlen(value), fcopy == copy ? SQLITE_TRANSIENT : SQLITE_STATIC);
+            rc_ = sqlite3_bind_text(stmt_, idx, value, int(std::strlen(value)), fcopy == copy ? SQLITE_TRANSIENT : SQLITE_STATIC);
             if (rc_ == SQLITE_MISUSE) {
                 sqlite3_reset(stmt_);
-                rc_ = sqlite3_bind_text(stmt_, idx, value, std::strlen(value), fcopy == copy ? SQLITE_TRANSIENT : SQLITE_STATIC);
+                rc_ = sqlite3_bind_text(stmt_, idx, value, int(std::strlen(value)), fcopy == copy ? SQLITE_TRANSIENT : SQLITE_STATIC);
             }
             if (rc_ != SQLITE_OK)
                 db_.throw_database_error();
@@ -620,7 +631,7 @@ namespace sqlite3pp {
         }
 
         int prepare_impl(char const* stmt) {
-            rc_ = sqlite3_prepare_v2(db_.db_, stmt, std::strlen(stmt), &stmt_, &tail_);
+            rc_ = sqlite3_prepare_v2(db_.db_, stmt, int(std::strlen(stmt)), &stmt_, &tail_);
             if (rc_ != SQLITE_OK)
                 db_.throw_database_error();
             return rc_;

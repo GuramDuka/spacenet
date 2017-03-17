@@ -37,13 +37,20 @@
 //------------------------------------------------------------------------------
 #if !defined(HAVE_READDIR_R)
 #   if defined(__GNUC_PREREQ)
-#       if __GNUC_PREREQ (3,2))
+#       if __GNUC_PREREQ (3,2)
 #           define HAVE_READDIR_R (_POSIX_C_SOURCE >= 1 || _XOPEN_SOURCE || _BSD_SOURCE || _SVID_SOURCE || _POSIX_SOURCE)
 #       endif
 #   endif
 #endif
 //------------------------------------------------------------------------------
 #if __cplusplus
+//------------------------------------------------------------------------------
+#if _MSC_VER <= 1900 || _X86_ || __x86_64 || _M_X64 || _M_IX86
+//------------------------------------------------------------------------------
+constexpr bool MACHINE_LITTLE_ENDIAN = true;
+constexpr bool MACHINE_BIG_ENDIAN = false;
+//------------------------------------------------------------------------------
+#else
 //------------------------------------------------------------------------------
 constexpr bool MACHINE_LITTLE_ENDIAN_F() {
     union {
@@ -55,8 +62,11 @@ constexpr bool MACHINE_LITTLE_ENDIAN_F() {
     //static_assert( u.x != 0, "machine byte order detection falied");
     return u.x < 0x10000u;
 }
+//------------------------------------------------------------------------------
 constexpr bool MACHINE_LITTLE_ENDIAN = noexcept(MACHINE_LITTLE_ENDIAN_F());
 constexpr bool MACHINE_BIG_ENDIAN = noexcept(!MACHINE_LITTLE_ENDIAN_F());
+//------------------------------------------------------------------------------
+#endif
 //------------------------------------------------------------------------------
 namespace spacenet {
 struct leave_uninitialized_type {};

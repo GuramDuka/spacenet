@@ -44,7 +44,8 @@ std::wstring str2wstr(const std::string & str)
         if( sz > INT_MAX )
             throw std::range_error("String is too big");
 
-        size_t charsNeeded = MultiByteToWideChar(CP_UTF8, 0, str.c_str(), int(sz), NULL, 0);
+        size_t charsNeeded = MultiByteToWideChar(
+            CP_UTF8, 0, str.c_str(), int(sz), NULL, 0);
 
         if( charsNeeded == 0 )
             throw std::range_error("Failed converting UTF-8 string to UTF-16");
@@ -53,7 +54,8 @@ std::wstring str2wstr(const std::string & str)
 
         buffer.resize(charsNeeded);
 
-        int charsConverted = MultiByteToWideChar(CP_UTF8, 0, str.c_str(), int(sz), &buffer[0], buffer.size());
+        int charsConverted = MultiByteToWideChar(
+            CP_UTF8, 0, str.c_str(), int(sz), &buffer[0], int(buffer.size()));
 
         if( charsConverted == 0 )
             throw std::range_error("Failed converting UTF-8 string to UTF-16");
@@ -63,7 +65,7 @@ std::wstring str2wstr(const std::string & str)
         return converter.from_bytes(str);
 #endif
     }
-    catch( std::range_error & e ) {
+    catch( std::range_error & ) {
         size_t length = str.length();
         std::wstring result;
 
@@ -85,7 +87,7 @@ std::string wstr2str(const std::wstring & str)
 //------------------------------------------------------------------------------
 std::string str2utf(const string & str)
 {
-    return converter.to_bytes(str);
+    return converter.to_bytes(str.c_str());
 }
 //------------------------------------------------------------------------------
 string utf2str(const std::string & str)
@@ -96,25 +98,27 @@ string utf2str(const std::string & str)
         if( sz > INT_MAX )
             throw std::range_error("String is too big");
 
-        size_t charsNeeded = MultiByteToWideChar(CP_UTF8, 0, str.c_str(), int(sz), NULL, 0);
+        size_t charsNeeded = MultiByteToWideChar(
+            CP_UTF8, 0, str.c_str(), int(sz), NULL, 0);
 
         if( charsNeeded == 0 )
             throw std::range_error("Failed converting UTF-8 string to UTF-16");
 
-        std::wstring buffer;
+        string buffer;
 
         buffer.resize(charsNeeded);
 
-        int charsConverted = MultiByteToWideChar(CP_UTF8, 0, str.c_str(), int(sz), &buffer[0], buffer.size());
+        int charsConverted = MultiByteToWideChar(
+            CP_UTF8, 0, str.c_str(), int(sz), &buffer[0], int(buffer.size()));
 
         if( charsConverted == 0 )
             throw std::range_error("Failed converting UTF-8 string to UTF-16");
 
         return buffer;
     }
-    catch( std::range_error & e ) {
+    catch( std::range_error & ) {
         size_t length = str.length();
-        std::wstring result;
+        string result;
 
         result.reserve(length);
 

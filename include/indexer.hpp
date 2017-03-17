@@ -27,6 +27,7 @@
 //------------------------------------------------------------------------------
 #pragma once
 //------------------------------------------------------------------------------
+#include <io.h>
 #include <functional>
 #include <string>
 #include <forward_list>
@@ -39,6 +40,41 @@ namespace spacenet {
 //------------------------------------------------------------------------------
 extern const string::value_type path_delimiter[];
 //------------------------------------------------------------------------------
+#if _WIN32 && _MSC_VER
+//------------------------------------------------------------------------------
+#ifndef CLOCK_REALTIME
+#define CLOCK_REALTIME 0
+#endif
+//------------------------------------------------------------------------------
+int clock_gettime(int dummy, struct timespec * ct);
+//------------------------------------------------------------------------------
+#endif
+//------------------------------------------------------------------------------
+#if _WIN32
+const wchar_t *
+#else
+const char *
+#endif
+getenv(const string & var_name);
+//------------------------------------------------------------------------------
+#if _WIN32
+#ifndef F_OK
+#define F_OK 0
+#endif
+#ifndef X_OK
+#define X_OK 0
+#endif
+#ifndef W_OK
+#define W_OK 2
+#endif
+#ifndef R_OK
+#define R_OK 4
+#endif
+#endif
+int access(const string & path_name, int mode);
+//------------------------------------------------------------------------------
+int mkdir(const string & path_name);
+string home_path(bool no_back_slash = false);
 string temp_path(bool no_back_slash = false);
 string temp_name(string dir = string(), string pfx = string());
 string get_cwd(bool no_back_slash = false);
@@ -47,20 +83,20 @@ string path2rel(const string & path, bool no_back_slash = false);
 ////////////////////////////////////////////////////////////////////////////////
 //------------------------------------------------------------------------------
 struct directory_reader {
-    std::function<void()> manipulator;
+    std::function<void()> manipulator_;
 
-    string path;
-    string path_name;
-    string name;
-    string mask;
-    string exclude;
-    uintptr_t level = 0;
-    uintptr_t max_level = 0;
+    string path_;
+    string path_name_;
+    string name_;
+    string mask_;
+    string exclude_;
+    uintptr_t level_ = 0;
+    uintptr_t max_level_ = 0;
 
-    bool list_dot = false;
-    bool list_dotdot = false;
-    bool list_directories = false;
-    bool recursive = false;
+    bool list_dot_ = false;
+    bool list_dotdot_ = false;
+    bool list_directories_ = false;
+    bool recursive_ = false;
 
     uint64_t atime = 0;
     uint64_t ctime = 0;
@@ -73,9 +109,11 @@ struct directory_reader {
     bool is_reg = false;
     bool is_lnk = false;
 
+    bool abort_ = false;
+
     template <typename Manipul>
     void read(const string & root_path, const Manipul & ml) {
-        this->manipulator = [&] {
+        this->manipulator_ = [&] {
             ml();
         };
 
@@ -89,11 +127,11 @@ struct directory_reader {
 //------------------------------------------------------------------------------
 class directory_indexer {
     private:
-        bool modified_only_;
+        bool modified_only_ = true;
     protected:
     public:
         const auto & modified_only() const {
-            return modified_only;
+            return modified_only_;
         }
 
         directory_indexer & modified_only(decltype(modified_only_) modified_only) {
@@ -101,7 +139,10 @@ class directory_indexer {
             return *this;
         }
 
-        void reindex(sqlite3pp::database & db);
+        void reindex(
+            sqlite3pp::database & db,
+            const string & dir_path_name,
+            bool * p_shutdown = nullptr);
 };
 //------------------------------------------------------------------------------
 namespace tests {

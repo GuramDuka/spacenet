@@ -28,13 +28,14 @@
 #pragma once
 //------------------------------------------------------------------------------
 #include <cinttypes>
+#include <cstdint>
 //------------------------------------------------------------------------------
 #include "config.h"
 #include "locale_traits.hpp"
 //------------------------------------------------------------------------------
 namespace spacenet {
 //------------------------------------------------------------------------------
-constexpr uint32_t cbe32toh(uint32_t x) {
+inline uint32_t cbe32toh(uint32_t x) {
     if( MACHINE_LITTLE_ENDIAN ) {
         x = ( x               << 16) ^  (x >> 16);
         x = ((x & 0x00ff00ff) <<  8) ^ ((x >>  8) & 0x00ff00ff);
@@ -50,7 +51,7 @@ inline uint32_t vbe32toh(uint32_t x) {
     return x;
 }
 //------------------------------------------------------------------------------
-constexpr uint32_t chtobe32(uint32_t x) {
+inline uint32_t chtobe32(uint32_t x) {
     if( MACHINE_LITTLE_ENDIAN ) {
         x = ( x               << 16) ^  (x >> 16);
         x = ((x & 0x00ff00ff) <<  8) ^ ((x >>  8) & 0x00ff00ff);
@@ -66,7 +67,7 @@ inline uint32_t vhtobe32(uint32_t x) {
     return x;
 }
 //------------------------------------------------------------------------------
-constexpr uint64_t cbe64toh(uint64_t x) {
+inline uint64_t cbe64toh(uint64_t x) {
     if( MACHINE_LITTLE_ENDIAN ) {
         //x = ((x & 0x00000000ffffffff) << 32) | ((x >> 32) & 0x00000000ffffffff);
         x = (x << 32) | (x >> 32);
@@ -86,7 +87,7 @@ inline uint64_t vbe64toh(uint64_t x) {
     return x;
 }
 //------------------------------------------------------------------------------
-constexpr uint64_t chtobe64(uint64_t x) {
+inline uint64_t chtobe64(uint64_t x) {
     if( MACHINE_LITTLE_ENDIAN ) {
         //x = ((x & 0x00000000ffffffff) << 32) | ((x >> 32) & 0x00000000ffffffff);
         x = (x << 32) | (x >> 32);
@@ -120,6 +121,7 @@ struct cdc512 : public cdc512_data {
         struct {
             uint64_t ba, bb, bc, bd, be, bf, bg, bh;
         };
+        uint64_t digest64[sizeof(cdc512_data) / sizeof(uint64_t)];
         uint8_t digest[sizeof(cdc512_data)];
     };
     uint64_t p;
@@ -175,7 +177,8 @@ struct cdc512 : public cdc512_data {
         return std::cend(digest);
     }
     
-    string to_string();
+    std::string to_string() const;
+    std::string to_short_string() const;
 };
 //------------------------------------------------------------------------------
 namespace tests {
